@@ -35,32 +35,28 @@ impl Console {
     }
 
     /// Outputs a character to the console.
-    pub fn putc(c: u8) {
-        uart::putc_sync(c);
+    pub fn putc_sync(c: u8) {
+        uart::write_sync(&[c]);
     }
 
     /// Handles backspace by erasing the character before the cursor.
     pub fn put_backspace() {
-        Self::putc(b'\x08'); // backspace
-        Self::putc(b' '); // over-write with space
-        Self::putc(b'\x08'); // backsapce again
+        Self::putc_sync(b'\x08'); // backspace
+        Self::putc_sync(b' '); // over-write with space
+        Self::putc_sync(b'\x08'); // backsapce again
     }
 
     /// User `write()`s to the console are handled here.
-    pub fn write(src: VA, len: usize) -> Result<usize, SysError> {
-        let mut src = src;
+    pub fn write(mut src: VA, len: usize) -> Result<usize, SysError> {
         let mut n = 0;
 
-        let mut buf = [0u8; 64];
+        let mut buf = [0u8; 32];
 
         while n < len {
-            let chunk = 64.min(len - n);
+            let chunk = 32.min(len - n);
             match proc::copy_from_user(src, &mut buf[..chunk]) {
                 Ok(_) => {
-                    for c in &buf[..chunk] {
-                        Self::putc(*c);
-                    }
-
+                    uart::write(&buf[..chunk]);
                     n += chunk;
                     src += chunk;
                 }
@@ -73,10 +69,9 @@ impl Console {
 
     /// User `read()`s from the console are handled here.
     /// Currently only handles user addresses.
-    pub fn read(dst: VA, mut len: usize) -> Result<usize, SysError> {
+    pub fn read(mut dst: VA, mut len: usize) -> Result<usize, SysError> {
         let mut console = CONSOLE.lock();
 
-        let mut dst = dst;
         let target = len;
 
         while len > 0 {
@@ -109,7 +104,7 @@ impl Console {
                 break;
             }
 
-            dst = VA::from(dst.as_usize() + 1);
+            dst += 1;
             len -= 1;
 
             // a whole line has arrived, return to the user-level `read()`
@@ -123,7 +118,7 @@ impl Console {
 
     /// Console input interrupt handler.
     ///
-    /// `uart_intr()` calls this for input character.
+    /// `uart::handle_interrupt()` calls this for each input character.
     /// Does erase/kill processing, append to `buf`, and wakes up `read()` if a whole line has arrived.
     pub fn handle_interrupt(c: u8) {
         let mut console = CONSOLE.lock();
@@ -137,8 +132,24 @@ impl Console {
                 }
             }
 
+            // print process list
             c if c == ctrl(b'P') => {
                 unsafe { PROC_TABLE.dump() };
+            }
+
+            // kill the line
+            c if c == ctrl(b'U') => {
+                while console.e != console.w
+                    && console.buf[(console.e - 1) % INPUT_BUF_SIZE] != b'\n'
+                {
+                    console.e -= 1;
+                    Console::put_backspace();
+                }
+            }
+
+            // induce a panic
+            c if c == ctrl(b'C') => {
+                panic!("ctrl-c induced panic");
             }
 
             // normal character
@@ -148,8 +159,8 @@ impl Console {
                         c = b'\n';
                     }
 
-                    // echo back to the user
-                    Console::putc(c);
+                    // echo back to the user, this does not sleep
+                    Self::putc_sync(c);
 
                     // store for consumption by `read()`
                     let index = console.e % INPUT_BUF_SIZE;
@@ -158,7 +169,7 @@ impl Console {
 
                     // new line or carriage return or end up of buffer
                     if c == b'\n' || c == ctrl(b'D') || console.e - console.r == INPUT_BUF_SIZE {
-                        // wake up `read` if a whole line (or end-of-file) has arrived
+                        // wake up `read()` if a whole line (or end-of-file) has arrived
                         console.w = console.e;
                         proc::wakeup(Channel::Buffer(&console.r as *const _ as usize));
                     }

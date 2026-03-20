@@ -38,6 +38,16 @@ impl<T> SpinLock<T> {
         self.cpu.load(Ordering::Relaxed) == unsafe { proc::current_cpu() }
     }
 
+    /// Returns true if the current CPU is holding the lock.
+    ///
+    /// Safe version of `holding()`, which disables interrupts before checking if the current CPU
+    /// holds the lock.
+    pub fn is_holding(&self) -> bool {
+        let _intr_lock = proc::lock_current_cpu();
+        // Safety: interrupts are disabled
+        unsafe { self.holding() }
+    }
+
     /// Acquires the mutex, blocking the current thread until it is able to do so.
     ///
     /// Returns a guard that releases the lock when dropped.

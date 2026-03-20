@@ -12,7 +12,7 @@ use crate::riscv::{
 use crate::spinlock::SpinLock;
 use crate::syscall::syscall;
 use crate::trampoline::{trampoline, userret, uservec};
-use crate::uart::UART;
+use crate::uart;
 use crate::virtio_disk;
 use crate::vm::VA;
 
@@ -247,7 +247,7 @@ fn device_interrupt(intr: scause::Interrupt) -> Option<InterruptType> {
 
             match irq as usize {
                 0 => {} // spurious interrupt from PLIC, ignore
-                UART0_IRQ => UART.handle_interrupt(),
+                UART0_IRQ => uart::handle_interrupt(),
                 VIRTIO0_IRQ => virtio_disk::handle_interrupt(),
                 _ => println!("unexpected interrupt irq = {}", irq),
             }
