@@ -23,7 +23,7 @@ pub static TICKS: SpinLock<usize> = SpinLock::new(0, "time");
 /// # Safety
 /// Called from `trampoline.rs`
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn usertrap() {
+pub unsafe fn usertrap() {
     unsafe {
         // make sure interrupt came from user space
         assert!(
@@ -115,7 +115,7 @@ pub unsafe extern "C" fn usertrap() {
 /// # Safety
 /// Called from `usertrap()`
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn usertrapret() {
+pub unsafe fn usertrapret() {
     let (_proc, data) = proc::current_proc_and_data_mut();
 
     // we're about to switch the destination of traps from `kerneltrap()` to `usertrap()`, so turn
@@ -156,7 +156,7 @@ pub unsafe extern "C" fn usertrapret() {
         // directly using `userret` would be an address in the kernel page table.
         let trampoline_userret: usize =
             TRAMPOLINE + (userret as *const () as usize - trampoline as *const () as usize);
-        let trampoline_userret: extern "C" fn(usize) -> ! = mem::transmute(trampoline_userret);
+        let trampoline_userret: fn(usize) -> ! = mem::transmute(trampoline_userret);
         trampoline_userret(user_satp);
     }
 }
@@ -167,7 +167,7 @@ pub unsafe extern "C" fn usertrapret() {
 /// # Safety
 /// Called from `kernelvec.rs`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn kerneltrap() {
+pub unsafe fn kerneltrap() {
     unsafe {
         let sepc = sepc::read();
         let sstatus = sstatus::read();

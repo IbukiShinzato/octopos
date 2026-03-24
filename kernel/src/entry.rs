@@ -8,7 +8,7 @@ use crate::start::start;
 /// This function is called from the assembly startup code.
 #[unsafe(link_section = ".entry")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn _entry() -> ! {
+pub unsafe fn _entry() -> ! {
     unsafe {
         // In RISC-V, the stack grows downwards. Stack pointer of each CPU points
         // to the top of the stack. Each stack is 4096 bits.

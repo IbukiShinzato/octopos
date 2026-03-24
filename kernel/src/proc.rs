@@ -939,7 +939,7 @@ pub fn r#yield() {
 ///
 /// # Safety
 /// This function is not called directly, but used as the return address for context switch.
-pub unsafe extern "C" fn fork_ret() {
+pub unsafe fn fork_ret() {
     // This is atomic since multiple CPUs could schedule their first process simultaneously.
     static FIRST: AtomicBool = AtomicBool::new(true);
 

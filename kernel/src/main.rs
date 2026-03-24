@@ -2,7 +2,7 @@
 #![no_main]
 
 #[unsafe(export_name = "main")]
-extern "C" fn main() -> ! {
+fn main() -> ! {
     kernel::main()
 }
 

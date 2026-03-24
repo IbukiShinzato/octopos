@@ -9,7 +9,7 @@ struct Stack([u8; 4096 * NCPU]);
 #[unsafe(no_mangle)]
 static mut STACK0: Stack = Stack([0; 4096 * NCPU]);
 
-unsafe extern "C" {
+unsafe extern "Rust" {
     fn main() -> !;
 }
 

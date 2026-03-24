@@ -28,7 +28,7 @@ unsafe extern "Rust" {
 /// After `main()` returns, the process exits with a status code of 0.
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text.entry")]
-extern "C" fn _start() -> ! {
+fn _start() -> ! {
     unsafe {
         let args = Args::from_stack();
         main(args);

@@ -42,7 +42,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 static STARTED: AtomicBool = AtomicBool::new(false);
 
-pub extern "C" fn main() -> ! {
+pub fn main() -> ! {
     let cpu_id = unsafe { proc::current_id() };
     if cpu_id == 0 {
         unsafe {
