@@ -1,5 +1,3 @@
-use core::mem::{self, MaybeUninit};
-
 use crate::fs::BSIZE;
 use crate::param::NBUF;
 use crate::sleeplock::{SleepLock, SleepLockGuard};
@@ -94,35 +92,9 @@ pub struct BCache {
 
 impl BCache {
     const fn new() -> Self {
-        let bufs = {
-            let mut array: [MaybeUninit<SleepLock<BufData>>; NBUF] =
-                unsafe { MaybeUninit::uninit().assume_init() };
+        let bufs = [const { SleepLock::new(BufData::new(), "buffer") }; NBUF];
 
-            let mut i = 0;
-            while i < NBUF {
-                array[i] = MaybeUninit::new(SleepLock::new(BufData::new(), "buffer"));
-                i += 1;
-            }
-
-            unsafe {
-                mem::transmute::<[MaybeUninit<SleepLock<BufData>>; 30], [SleepLock<BufData>; 30]>(
-                    array,
-                )
-            }
-        };
-
-        let meta = {
-            let mut array: [MaybeUninit<BufMeta>; NBUF] =
-                unsafe { MaybeUninit::uninit().assume_init() };
-
-            let mut i = 0;
-            while i < NBUF {
-                array[i] = MaybeUninit::new(BufMeta::new());
-                i += 1;
-            }
-
-            unsafe { mem::transmute::<[MaybeUninit<BufMeta>; 30], [BufMeta; 30]>(array) }
-        };
+        let meta = [const { BufMeta::new() }; NBUF];
 
         Self {
             inner: SpinLock::new(BCacheInner { meta, head: 0 }, "bcache"),

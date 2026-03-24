@@ -1,4 +1,3 @@
-use core::mem::{self, MaybeUninit};
 use core::slice;
 
 use alloc::sync::Arc;
@@ -51,49 +50,19 @@ pub struct FileTable {
 
 impl FileTable {
     const fn new() -> Self {
-        let meta = {
-            let mut array: [MaybeUninit<FileMeta>; NFILE] =
-                unsafe { MaybeUninit::uninit().assume_init() };
+        let meta = SpinLock::new([const { FileMeta { ref_count: 0 } }; NFILE], "filetable");
 
-            let mut i = 0;
-            while i < NFILE {
-                array[i] = MaybeUninit::new(FileMeta { ref_count: 0 });
-                i += 1;
-            }
-
-            SpinLock::new(
-                unsafe {
-                    mem::transmute::<[MaybeUninit<FileMeta>; NFILE], [FileMeta; NFILE]>(array)
+        let inner = [const {
+            SleepLock::new(
+                FileInner {
+                    readable: false,
+                    writeable: false,
+                    r#type: FileType::None,
+                    offset: 0,
                 },
-                "filetable",
+                "file",
             )
-        };
-
-        let inner = {
-            let mut array: [MaybeUninit<SleepLock<FileInner>>; NFILE] =
-                unsafe { MaybeUninit::uninit().assume_init() };
-
-            let mut i = 0;
-            while i < NFILE {
-                array[i] = MaybeUninit::new(SleepLock::new(
-                    FileInner {
-                        readable: false,
-                        writeable: false,
-                        r#type: FileType::None,
-                        offset: 0,
-                    },
-                    "file",
-                ));
-                i += 1;
-            }
-
-            unsafe {
-                mem::transmute::<
-                    [MaybeUninit<SleepLock<FileInner>>; NFILE],
-                    [SleepLock<FileInner>; NFILE],
-                >(array)
-            }
-        };
+        }; NFILE];
 
         Self { meta, inner }
     }

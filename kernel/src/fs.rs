@@ -1,5 +1,4 @@
 use core::fmt::Display;
-use core::mem::{self, MaybeUninit};
 use core::ptr;
 use core::slice;
 
@@ -306,41 +305,9 @@ pub struct InodeTable {
 
 impl InodeTable {
     const fn new() -> Self {
-        let meta = {
-            let mut array: [MaybeUninit<InodeMeta>; NINODE] =
-                unsafe { MaybeUninit::uninit().assume_init() };
+        let meta = { SpinLock::new([const { InodeMeta::new() }; NINODE], "itable") };
 
-            let mut i = 0;
-            while i < NINODE {
-                array[i] = MaybeUninit::new(InodeMeta::new());
-                i += 1;
-            }
-
-            SpinLock::new(
-                unsafe {
-                    mem::transmute::<[MaybeUninit<InodeMeta>; NINODE], [InodeMeta; NINODE]>(array)
-                },
-                "itable",
-            )
-        };
-
-        let inner = {
-            let mut array: [MaybeUninit<SleepLock<InodeInner>>; NINODE] =
-                unsafe { MaybeUninit::uninit().assume_init() };
-
-            let mut i = 0;
-            while i < NINODE {
-                array[i] = MaybeUninit::new(SleepLock::new(InodeInner::new(), "inode"));
-                i += 1;
-            }
-
-            unsafe {
-                mem::transmute::<
-                    [MaybeUninit<SleepLock<InodeInner>>; NINODE],
-                    [SleepLock<InodeInner>; NINODE],
-                >(array)
-            }
-        };
+        let inner = [const { SleepLock::new(InodeInner::new(), "inode") }; NINODE];
 
         Self { meta, inner }
     }

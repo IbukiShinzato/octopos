@@ -1,6 +1,5 @@
 use core::arch::asm;
 use core::cell::UnsafeCell;
-use core::mem::{MaybeUninit, transmute};
 use core::ptr;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -71,13 +70,7 @@ pub struct CpuTable([UnsafeCell<Cpu>; NCPU]);
 impl CpuTable {
     /// Creates a new CPU table.
     const fn new() -> Self {
-        let mut array: [MaybeUninit<_>; NCPU] = unsafe { MaybeUninit::uninit().assume_init() };
-        let mut i = 0;
-        while i < NCPU {
-            array[i] = MaybeUninit::new(UnsafeCell::new(Cpu::new()));
-            i += 1;
-        }
-        unsafe { transmute(array) }
+        Self([const { UnsafeCell::new(Cpu::new()) }; NCPU])
     }
 }
 
@@ -532,19 +525,16 @@ pub struct ProcTable {
 
 impl ProcTable {
     pub const fn new() -> Self {
-        let mut table: [MaybeUninit<UnsafeCell<Proc>>; NPROC] =
-            unsafe { MaybeUninit::uninit().assume_init() };
+        let mut table = [const { UnsafeCell::new(Proc::new(0)) }; NPROC];
 
         let mut i = 0;
         while i < NPROC {
-            table[i] = MaybeUninit::new(UnsafeCell::new(Proc::new(i)));
+            table[i].get_mut().id = i;
             i += 1;
         }
 
         Self {
-            table: unsafe {
-                transmute::<[MaybeUninit<UnsafeCell<Proc>>; 64], [UnsafeCell<Proc>; 64]>(table)
-            },
+            table,
             parents: SpinLock::new([None; NPROC], "parents"),
         }
     }
