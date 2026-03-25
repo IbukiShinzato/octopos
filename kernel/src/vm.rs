@@ -5,11 +5,12 @@ use core::mem::MaybeUninit;
 use core::ptr::{self, NonNull};
 
 use crate::fs::{Inode, InodeInner};
+use crate::kalloc;
 use crate::memlayout::{KERNBASE, PHYSTOP, PLIC, TRAMPOLINE, TRAPFRAME, UART0, VIRTIO0};
 use crate::proc::{self, PROC_TABLE};
 use crate::riscv::{
-    MAXVA, PGSIZE, PTE_R, PTE_U, PTE_V, PTE_W, PTE_X, pa_to_pte, pg_round_down, pg_round_up,
-    pte_flags, pte_to_pa, px,
+    MAXVA, PGSIZE, PTE_COW, PTE_R, PTE_U, PTE_V, PTE_W, PTE_X, pa_to_pte, pg_round_down,
+    pg_round_up, pte_flags, pte_to_pa, px,
     registers::{satp, vma},
 };
 use crate::sleeplock::SleepLockGuard;
@@ -220,6 +221,10 @@ impl PageTableEntry {
     /// Check if the PTE is writable.
     fn is_w(&self) -> bool {
         *self & PTE_W != 0
+    }
+
+    fn is_cow(&self) -> bool {
+        *self & PTE_COW != 0
     }
 
     /// Return flags of the PTE (least significant 10 bits).
@@ -683,38 +688,37 @@ impl Uvm {
     }
 
     /// Copies this prcoess's (parent's) page table and its memory into a child's page table.
-    pub fn copy(&self, child: &mut Uvm, size: usize) -> Result<(), VmError> {
+    /// Instead of copying the physical memory, we set up copy-on-write (COW) mappings for both
+    /// parent and child.
+    pub fn copy(&mut self, child: &mut Uvm, size: usize) -> Result<(), VmError> {
         for i in (0..size).step_by(PGSIZE) {
-            let pte = try_log!(self.walk(VA::from(i)));
+            let pte = match self.walk_mut(VA::from(i), false) {
+                // intermediate page is absent, lazy allocated
+                Err(_) => continue,
+                // leaf pte is absent, lazy allocated
+                Ok(pte) if !pte.is_v() => continue,
 
-            assert!(pte.is_v(), "uvmcopy: page not present");
-
-            let pa = pte.as_pa();
-            let flags = pte.flags();
-
-            let mem = match log!(Box::<Page>::try_new_zeroed()) {
-                Ok(mem) => unsafe { mem.assume_init() },
-                Err(err) => {
-                    child.unmap(VA::from(0), i / PGSIZE, true);
-                    return Err(err.into());
-                }
+                // allocated pte, map it over
+                Ok(pte) => pte,
             };
 
-            let mem_ptr = Box::into_raw(mem);
-            // # Safety: pa is valid and mapped in parent's pagetable. mem and pa are
-            // non-overlapping.
-            unsafe {
-                ptr::copy_nonoverlapping(pa.as_mut_ptr::<u8>(), mem_ptr as *mut u8, PGSIZE);
+            // if PTE_W is set, clear it and set COW bit for both parent and child.
+            if pte.is_w() {
+                *pte &= !PTE_W;
+                *pte |= PTE_COW;
             }
 
-            if let Err(err) =
-                log!(child.map_pages(VA::from(i), PA::from(mem_ptr as usize), PGSIZE, flags))
-            {
-                // # Safety: mem_ptr was allocated above and is not mapped in child's pagetable.
-                drop(unsafe { Box::from_raw(mem_ptr) });
+            // map child's virtual address to the same physical address as the parent.
+            if let Err(err) = log!(child.map_pages(VA::from(i), pte.as_pa(), PGSIZE, pte.flags())) {
                 child.unmap(VA::from(0), i / PGSIZE, true);
                 return Err(err);
             }
+
+            // increment the reference count for the page, it's now shared between parent and child.
+            kalloc::increment_ref(pte.as_pa());
+
+            // flush TLB so that the new PTE flags take effect immediately.
+            unsafe { vma::sfence() };
         }
 
         Ok(())
@@ -729,33 +733,64 @@ impl Uvm {
         Ok(())
     }
 
-    fn is_mapped(&mut self, va: VA) -> bool {
-        if let Ok(pte) = self.walk(va) {
-            pte.is_v()
-        } else {
-            false
-        }
-    }
-
     /// Allocates and maps user memory if process is referencing a page that was lazily allocated
-    /// in `sys_sbrk()`.
+    /// in `sys_sbrk()` or a copy-on-write page.
     ///
-    /// Returns the physical access, if successful.
-    /// Returns err if `va` is invalid / already mapped, or out of physical memory.
+    /// Returns the physical address, if successful.
+    /// Returns err if `va` is out-of-bounds or write attempt on read-only page.
+    ///
+    /// # Cases
+    /// 1. va is greater than size: out-of-bounds access, page fault
+    /// 2. pte is valid and cow is unset: write on read-only page, page fault
+    /// 3. pte is valid and cow is set: valid copy-on-write page, copy page as writable
+    /// 4. pte is invalid: lazily allocated page, allocate & map new page
     pub fn vmfault(&mut self, va: VA) -> Result<PA, VmError> {
-        let proc = proc::current_proc();
-        // # Safety: we have the current process.
-        let data = unsafe { proc.data_mut() };
+        let (_proc, data) = proc::current_proc_and_data_mut();
 
         if va.as_usize() >= data.size {
+            // case 1: out-of-bounds access
             err!(VmError::InvalidAddress);
         }
 
         let va = va.round_down();
-        if self.is_mapped(va) {
-            err!(VmError::InvalidAddress);
+
+        if let Ok(pte) = self.walk_mut(va, false)
+            && pte.is_v()
+        {
+            if !pte.is_cow() {
+                // case 2: mapped but not writable
+                err!(VmError::InvalidAddress);
+            }
+
+            // case 3: COW page, copy and remap as writable
+            let old_pa = pte.as_pa();
+            let mem = match log!(Box::<Page>::try_new_zeroed()) {
+                Ok(mem) => unsafe { mem.assume_init() },
+                Err(err) => return Err(err.into()),
+            };
+            let new_pa = PA::from(Box::into_raw(mem) as usize);
+
+            unsafe {
+                ptr::copy_nonoverlapping(
+                    old_pa.as_mut_ptr::<u8>(),
+                    new_pa.as_mut_ptr::<u8>(),
+                    PGSIZE,
+                );
+            }
+
+            // install new page with write enabled and COW disabled
+            let flags = (pte.flags() & !PTE_COW) | PTE_W;
+            *pte = new_pa.as_pte() | flags;
+
+            // drop our reference to the original page.
+            // this page will be truly deallocated by `kalloc` when all refs are dropped.
+            // # Safety: old_pa was allocated by parent process and is a valid pointer to a Page.
+            drop(unsafe { Box::from_raw(old_pa.as_mut_ptr::<Page>()) });
+
+            return Ok(new_pa);
         }
 
+        // case 4: pte absent, lazily allocate a new page
         let mem = match log!(Box::<Page>::try_new_zeroed()) {
             Ok(mem) => unsafe { mem.assume_init() },
             Err(err) => return Err(err.into()),

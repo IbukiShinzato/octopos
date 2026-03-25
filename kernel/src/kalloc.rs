@@ -6,6 +6,7 @@ use buddy_alloc::{BuddyAllocParam, buddy_alloc::BuddyAlloc};
 use crate::memlayout::{KERNBASE, PHYSTOP};
 use crate::riscv::PGSIZE;
 use crate::spinlock::SpinLock;
+use crate::vm::PA;
 
 unsafe extern "C" {
     /// First address after kernel, defined by kernel.ld.
@@ -13,7 +14,7 @@ unsafe extern "C" {
 }
 
 /// Reference count of each physical page.
-/// The index of the array is the page number (page address / PGSIZE).
+/// The index of the array is the page number ((page address - KERNBASE) / PGSIZE).
 ///
 /// Count is 1 when `Kmem` allocates it.
 /// It is incremented when fork causes a child to share the page.
@@ -27,6 +28,10 @@ unsafe extern "C" {
 /// To be able to allocate this array statically, we will not worry about those.
 static PAGE_REFS: [AtomicU8; (PHYSTOP - KERNBASE) / PGSIZE] =
     [const { AtomicU8::new(0) }; (PHYSTOP - KERNBASE) / PGSIZE];
+
+pub fn increment_ref(pa: PA) {
+    PAGE_REFS[(pa.as_usize() - KERNBASE) / PGSIZE].fetch_add(1, Ordering::Relaxed);
+}
 
 /// Kernel memory allocator
 #[global_allocator]
