@@ -698,7 +698,7 @@ pub fn fork() -> Result<Pid, KernelError> {
     // copy user memory from parent to child
     let new_pagetable = new_data.pagetable_mut();
     let size = data.size;
-    if let Err(err) = log!(data.pagetable_mut().copy(new_pagetable, size)) {
+    if let Err(err) = log!(data.pagetable().copy(new_pagetable, size)) {
         new_proc.free(new_inner);
         return Err(err.into());
     };

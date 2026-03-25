@@ -336,10 +336,14 @@ impl PageTable {
     ///
     /// If `alloc` is true, create any required page-table pages.
     /// Otherwise, return an error if any required page-table page doesn't exist.
-    fn walk(&mut self, va: VA, alloc: bool) -> Result<&mut PageTableEntry, VmError> {
+    ///
+    /// Only used by `PageTable::walk()` and `PageTable::walk_mut()`.
+    unsafe fn walk_raw(
+        mut pagetable: NonNull<RawPageTable>,
+        va: VA,
+        alloc: bool,
+    ) -> Result<*mut PageTableEntry, VmError> {
         assert!(va < MAXVA, "walk");
-
-        let mut pagetable = self.ptr;
 
         unsafe {
             for level in (1..=2).rev() {
@@ -364,15 +368,31 @@ impl PageTable {
         }
     }
 
+    /// Returns a reference to the PTE in page table that corresponds to virtual address `va`.
+    ///
+    /// Returns an error if any required page-table page doesn't exist.
+    fn walk(&self, va: VA) -> Result<&PageTableEntry, VmError> {
+        unsafe { Self::walk_raw(self.ptr, va, false).map(|p| &*p) }
+    }
+
+    /// Returns a mutable reference to the PTE in page table that corresponds to virtual address
+    /// `va`.
+    ///
+    /// Returns an error if any required page-table page doesn't exist and `alloc` is false.
+    /// If `alloc` is true, creates any required page-table pages.
+    fn walk_mut(&mut self, va: VA, alloc: bool) -> Result<&mut PageTableEntry, VmError> {
+        unsafe { Self::walk_raw(self.ptr, va, alloc).map(|p| &mut *p) }
+    }
+
     /// Looks up a virtual address, return the physical address, or Error if not mapped.
     ///
     /// Can only be used to look up user pages.
-    fn walk_addr(&mut self, va: VA) -> Result<PA, VmError> {
+    fn walk_addr(&self, va: VA) -> Result<PA, VmError> {
         if va > MAXVA {
             err!(VmError::InvalidAddress);
         }
 
-        let pte = try_log!(self.walk(va, false));
+        let pte = try_log!(self.walk(va));
 
         if !pte.is_v() || !pte.is_u() {
             err!(VmError::InvalidPte);
@@ -395,7 +415,7 @@ impl PageTable {
         let mut pa = pa;
 
         loop {
-            let pte = try_log!(self.walk(va, true));
+            let pte = try_log!(self.walk_mut(va, true));
             assert!(!pte.is_v(), "map_pages: remap");
 
             *pte = pa.as_pte() | perm | PTE_V;
@@ -435,7 +455,7 @@ impl PageTable {
     }
 
     pub fn load_elf_segment(
-        &mut self,
+        &self,
         inode: &mut Inode,
         inner: &mut SleepLockGuard<'_, InodeInner>,
         va: VA,
@@ -552,7 +572,7 @@ impl Uvm {
         assert!(va.0.is_multiple_of(PGSIZE), "uvmunmap: not aligned");
 
         for i in (va.0..va.0 + (npages * PGSIZE)).step_by(PGSIZE) {
-            match log!(self.0.walk(VA::from(i), false)) {
+            match log!(self.0.walk_mut(VA::from(i), false)) {
                 Err(_) => panic!("uvmunmap: walk"),
                 Ok(pte) if !pte.is_v() => panic!("uvmunmap: not mapped"),
                 Ok(pte) if !pte.is_leaf() => panic!("uvmunmap: not a leaf"),
@@ -653,11 +673,9 @@ impl Uvm {
     }
 
     /// Copies this prcoess's (parent's) page table and its memory into a child's page table.
-    ///
-    /// TODO: this is taking `&mut self` because `walk` requires `&mut` but it should not.
-    pub fn copy(&mut self, child: &mut Uvm, size: usize) -> Result<(), VmError> {
+    pub fn copy(&self, child: &mut Uvm, size: usize) -> Result<(), VmError> {
         for i in (0..size).step_by(PGSIZE) {
-            let pte = try_log!(self.walk(VA::from(i), false));
+            let pte = try_log!(self.walk(VA::from(i)));
 
             assert!(pte.is_v(), "uvmcopy: page not present");
 
@@ -696,13 +714,13 @@ impl Uvm {
     ///
     /// Used by `exec()` for the user stack guard page.
     pub fn clear(&mut self, va: VA) -> Result<(), VmError> {
-        let pte = try_log!(self.walk(va, false));
+        let pte = try_log!(self.walk_mut(va, false));
         *pte &= !PTE_U;
         Ok(())
     }
 
     fn is_mapped(&mut self, va: VA) -> bool {
-        if let Ok(pte) = self.walk(va, false) {
+        if let Ok(pte) = self.walk(va) {
             pte.is_v()
         } else {
             false
@@ -761,7 +779,7 @@ impl Uvm {
                 Err(_) => try_log!(self.vmfault(VA::from(va0))),
             };
 
-            let pte = try_log!(self.walk(VA::from(va0), false));
+            let pte = try_log!(self.walk(VA::from(va0)));
 
             // forbid copy_out over read-only user text pages
             if !pte.is_w() {
