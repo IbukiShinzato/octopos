@@ -281,14 +281,6 @@ pub unsafe fn syscall(trapframe: &mut TrapFrame) {
     let proc = current_proc();
     let args = SyscallArgs::new(trapframe, proc);
 
-    // #[cfg(debug_assertions)]
-    // println!(
-    //     "syscall {} called from proc {} ({})",
-    //     trapframe.a7,
-    //     *proc.inner.lock().pid,
-    //     proc.data().name,
-    // );
-
     let result = match Syscall::try_from(trapframe.a7) {
         Ok(syscall) => match syscall {
             Syscall::Fork => sys_fork(&args),
@@ -320,16 +312,16 @@ pub unsafe fn syscall(trapframe: &mut TrapFrame) {
         Ok(v) => v,
         Err(error) => {
             #[cfg(debug_assertions)]
-            println!(
-                "! syscall error ({}) from proc {} ({})",
-                error,
-                *proc.inner.lock().pid,
-                proc.data().name,
-            );
+            {
+                let pid = *proc.inner.lock().pid;
+                println!(
+                    "! syscall error ({}) from proc {} ({})",
+                    error,
+                    pid,
+                    proc.data().name,
+                );
+            }
             (-(error.as_code() as isize)) as usize
         }
     };
-
-    // #[cfg(debug_assertions)]
-    // println!("syscall {} -> {}", trapframe.a7, trapframe.a0);
 }
