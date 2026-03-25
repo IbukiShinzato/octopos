@@ -40,7 +40,8 @@ riscv64-elf-gdb      # .gdbinit connects to port 1234 and loads symbols automati
 ## Current State
 
 The kernel boots, initializes all subsystems, and runs a full userspace environment including a
-shell with pipes, redirections, and background jobs. All planned stages are complete.
+shell with pipes, redirections, and background jobs. Memory management includes lazy page
+allocation and copy-on-write fork.
 
 ## Development Plan
 
@@ -122,3 +123,8 @@ often needed to break circular dependencies.
 1. pipe() — create a unidirectional channel, returning a read/write file descriptor pair
 2. Console as device file
 3. Multi-hart scheduling
+
+### Stage 10: Memory Optimizations
+
+1. Lazy page allocation — sbrk() pages are allocated on first access via the page fault handler
+2. Copy-on-write fork — fork() pages marked read-only with a COW bit are copied privately on first write
