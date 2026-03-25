@@ -1,14 +1,32 @@
 use core::alloc::{GlobalAlloc, Layout};
+use core::sync::atomic::{AtomicU8, Ordering};
 
 use buddy_alloc::{BuddyAllocParam, buddy_alloc::BuddyAlloc};
 
-use crate::memlayout::PHYSTOP;
+use crate::memlayout::{KERNBASE, PHYSTOP};
+use crate::riscv::PGSIZE;
 use crate::spinlock::SpinLock;
 
 unsafe extern "C" {
     /// First address after kernel, defined by kernel.ld.
     static end: [u8; 0];
 }
+
+/// Reference count of each physical page.
+/// The index of the array is the page number (page address / PGSIZE).
+///
+/// Count is 1 when `Kmem` allocates it.
+/// It is incremented when fork causes a child to share the page.
+/// It is decremented each time any process drops the page from its page table.
+/// Page is only deallocated when count reaches 0.
+///
+/// Physical memory covers pages from `KERNBASE` up to `PHYSTOP`.
+/// We need one entry per page: (`PHYSTOP` - `KERNBASE`) / `PGSIZE`.
+///
+/// Entries from `KERNBASE` to `end` will never be touched but that's only ~56 entries.
+/// To be able to allocate this array statically, we will not worry about those.
+static PAGE_REFS: [AtomicU8; (PHYSTOP - KERNBASE) / PGSIZE] =
+    [const { AtomicU8::new(0) }; (PHYSTOP - KERNBASE) / PGSIZE];
 
 /// Kernel memory allocator
 #[global_allocator]
@@ -22,15 +40,24 @@ unsafe impl Sync for Kmem {}
 
 unsafe impl GlobalAlloc for Kmem {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        self.0
+        let ptr = self
+            .0
             .lock()
             .as_mut()
             .expect("kmem to be init")
-            .malloc(layout.size())
+            .malloc(layout.size());
+
+        // start each allocated page's ref count at 1.
+        PAGE_REFS[(ptr as usize - KERNBASE) / PGSIZE].store(1, Ordering::Relaxed);
+
+        ptr
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
-        self.0.lock().as_mut().expect("kmem to be init").free(ptr)
+        // if the last value before decrement was 1, free the page.
+        if PAGE_REFS[(ptr as usize - KERNBASE) / PGSIZE].fetch_sub(1, Ordering::Relaxed) == 1 {
+            self.0.lock().as_mut().expect("kmem to be init").free(ptr)
+        }
     }
 }
 
