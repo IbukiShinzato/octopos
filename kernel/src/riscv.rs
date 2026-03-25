@@ -527,6 +527,8 @@ pub const PTE_W: usize = 1 << 2;
 pub const PTE_X: usize = 1 << 3;
 /// User bit (if not set, can only be used in supervisor mode)
 pub const PTE_U: usize = 1 << 4;
+/// Copy-On-Write bit (if set, page is read-only but can be copied to a new page on write)
+pub const PTE_COW: usize = 1 << 8;
 
 pub const fn pa_to_pte(pa: usize) -> usize {
     (pa >> 12) << 10

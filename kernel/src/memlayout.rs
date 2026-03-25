@@ -108,5 +108,6 @@ pub const TRAPFRAME: usize = TRAMPOLINE - PGSIZE;
  * [5]: G - Global
  * [6]: A - Accessed
  * [7]: D - Dirty (0 in page directory)
- * [10:8]: Reserved for supervisor software
+ * [8]: C - Copy-On-Write
+ * [10:9]: Reserved for supervisor software
  */
