@@ -684,7 +684,7 @@ impl Uvm {
             {
                 // # Safety: mem_ptr was allocated above and is not mapped in child's pagetable.
                 drop(unsafe { Box::from_raw(mem_ptr) });
-                child.unmap(VA::from(0), 1 / PGSIZE, true);
+                child.unmap(VA::from(0), i / PGSIZE, true);
                 return Err(err);
             }
         }
