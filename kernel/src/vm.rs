@@ -563,9 +563,10 @@ impl Uvm {
         Ok(Self(try_log!(PageTable::try_new())))
     }
 
-    /// Removes npages of mappings starting from `va`.
+    /// Removes `npages` of mappings starting from `va`.
     ///
-    /// `va` must be page-aligned and the mapping must exist.
+    /// `va` must be page-aligned.
+    /// Pages that were never faulted in (lazy allocation) are silently skipped.
     ///
     /// Optionally, frees the physical memory.
     pub fn unmap(&mut self, va: VA, npages: usize, free: bool) {
@@ -573,9 +574,18 @@ impl Uvm {
 
         for i in (va.0..va.0 + (npages * PGSIZE)).step_by(PGSIZE) {
             match log!(self.0.walk_mut(VA::from(i), false)) {
-                Err(_) => panic!("uvmunmap: walk"),
-                Ok(pte) if !pte.is_v() => panic!("uvmunmap: not mapped"),
+                // An intermediate page-table page is absent; this region was never touched by a
+                // page fault.
+                Err(_) => continue,
+
+                // Leaf PTE is invalid; page was lazily allocated but never faulted in.
+                Ok(pte) if !pte.is_v() => continue,
+
+                // walk always returns the level-0 PTE; a valid non-leaf at level 0 would
+                // indicate a page-table corruption.
                 Ok(pte) if !pte.is_leaf() => panic!("uvmunmap: not a leaf"),
+
+                // walk returned a valid mapping, proceed to unmap (and optionally free).
                 Ok(pte) => {
                     if free {
                         let pa = pte.as_pa();

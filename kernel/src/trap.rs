@@ -63,12 +63,20 @@ pub unsafe fn usertrap() {
 
             // page fault on lazily-allocated page
             scause::Trap::Exception(scause::Exception::StorePageFault)
-            | scause::Trap::Exception(scause::Exception::LoadPageFault)
-                if pagetable.vmfault(VA::from(stval::read())).is_ok() =>
-            {
-                // vmfault handles the interrupt
-                // nothing to do
-                println!("usertrap vmfault");
+            | scause::Trap::Exception(scause::Exception::LoadPageFault) => {
+                // vmfault handles the page fault
+                // if err, either out-of-memory or out-of-bound, kill the process
+                if log!(pagetable.vmfault(VA::from(stval::read()))).is_err() {
+                    let pid = proc.inner.lock().pid;
+                    println!(
+                        "! unhandled page fault scause=0x{:X} pid={} sepc=0x{:X} stval=0x{:X}",
+                        scause.bits(),
+                        *pid,
+                        sepc::read(),
+                        stval::read(),
+                    );
+                    proc.inner.lock().killed = true;
+                }
             }
 
             // device interrupt
@@ -84,17 +92,15 @@ pub unsafe fn usertrap() {
 
             // something else
             _ => {
-                let mut inner = proc.inner.lock();
-
+                let pid = proc.inner.lock().pid;
                 println!(
-                    "usertrap: unexpected scause=0x{:X} pid={:?} sepc=0x{:X} stval=0x{:X}",
+                    "! unexpected interrupt scause=0x{:X} pid={} sepc=0x{:X} stval=0x{:X}",
                     scause.bits(),
-                    inner.pid,
+                    *pid,
                     sepc::read(),
                     stval::read(),
                 );
-
-                inner.killed = true;
+                proc.inner.lock().killed = true;
             }
         }
 

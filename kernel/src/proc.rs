@@ -661,17 +661,26 @@ pub fn user_init() {
 }
 
 /// Grows or shrinks user memory by `n` bytes.
-/// The new size is reflected in `proc.data.size` and return.
+/// The new size is reflected in `proc.data.size` and returned.
+///
+/// If `lazy` is set, positive change in `n` will update the process size but will not immediately
+/// allocate memory. This memory will be allocated only when the process accesses it, causing a page
+/// fault and invoking the lazy allocation logic in `trap.rs`.
 ///
 /// # Safety
 /// The caller must ensure exclusive access to the process's memory.
-pub unsafe fn grow(n: isize) -> Result<usize, KernelError> {
+pub unsafe fn grow(n: isize, lazy: bool) -> Result<usize, KernelError> {
     let (_proc, data) = current_proc_and_data_mut();
 
     let mut size = data.size;
 
     if n > 0 {
-        size = try_log!(data.pagetable_mut().alloc(size, size + (n as usize), PTE_W));
+        if lazy {
+            // TODO: make sure page-aligned
+            size += n as usize;
+        } else {
+            size = try_log!(data.pagetable_mut().alloc(size, size + (n as usize), PTE_W));
+        }
     } else if n < 0 {
         let shrink = (-n) as usize;
         if shrink > size {

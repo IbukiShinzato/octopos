@@ -31,7 +31,7 @@ pub fn sys_sbrk(args: &SyscallArgs) -> Result<usize, SysError> {
     let size = args.get_int(0);
     let addr = args.proc().data().size;
 
-    match unsafe { log!(proc::grow(size)) } {
+    match unsafe { log!(proc::grow(size, size >= 0)) } {
         Ok(_) => Ok(addr),
         Err(_) => Err(SysError::OutOfMemory),
     }
