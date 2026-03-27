@@ -52,8 +52,10 @@ unsafe impl GlobalAlloc for Kmem {
             .expect("kmem to be init")
             .malloc(layout.size());
 
-        // start each allocated page's ref count at 1.
-        PAGE_REFS[(ptr as usize - KERNBASE) / PGSIZE].store(1, Ordering::Relaxed);
+        // on OOM the allocator returns null; skip the ref-count update and let the caller handle it
+        if !ptr.is_null() {
+            PAGE_REFS[(ptr as usize - KERNBASE) / PGSIZE].store(1, Ordering::Relaxed);
+        }
 
         ptr
     }
