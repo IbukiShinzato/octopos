@@ -13,14 +13,21 @@ fn main(_args: Args) {
     dup(Fd::STDIN).expect("init: dup stdout");
     dup(Fd::STDIN).expect("init: dup stderr");
 
+    let test_mode = open("testmode", OpenFlag::READ_ONLY).is_ok();
+
     loop {
         let Ok(pid) = fork() else {
             exit_with_msg("init: fork failed");
         };
 
         if pid == 0 {
-            exec("/sh", &["sh"]);
-            exit_with_msg("init: exec sh failed");
+            if !test_mode {
+                exec("/sh", &["sh"]);
+                exit_with_msg("init: exec sh failed");
+            } else {
+                exec("/testrunner", &["testrunner"]);
+                exit_with_msg("init: exec testrunner failed");
+            }
         }
 
         loop {
