@@ -22,6 +22,9 @@
 use crate::param::NKSTACK_PAGES;
 use crate::riscv::{MAXVA, PGSIZE};
 
+// qemu test interface for power management
+pub const QEMU_POWER: usize = 0x10_0000;
+
 // qemu UART registers
 pub const UART0: usize = 0x1000_0000;
 pub const UART0_IRQ: usize = 10;

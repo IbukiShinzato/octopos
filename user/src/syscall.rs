@@ -142,6 +142,11 @@ pub mod raw {
     pub fn mkdir(path: *const u8) -> isize {
         syscall1(Syscall::Mkdir, path as usize)
     }
+
+    pub fn poweroff(code: u32) -> ! {
+        syscall1(Syscall::Poweroff, code as usize);
+        unreachable!();
+    }
 }
 
 use kernel::abi::{MAXPATH, Stat, SysError};
@@ -335,4 +340,8 @@ pub fn link(old: &str, new: &str) -> Result<(), SysError> {
 pub fn mkdir(path: &str) -> Result<(), SysError> {
     let cpath = validate_path(path)?;
     check_unit(raw::mkdir(cpath.as_ptr()))
+}
+
+pub fn poweroff(code: u32) -> ! {
+    raw::poweroff(code)
 }

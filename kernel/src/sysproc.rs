@@ -1,3 +1,4 @@
+use crate::memlayout::QEMU_POWER;
 use crate::proc::{self, Channel, Pid, current_proc};
 use crate::syscall::{SysError, SyscallArgs};
 use crate::trap::TICKS;
@@ -68,4 +69,17 @@ pub fn sys_kill(args: &SyscallArgs) -> Result<usize, SysError> {
 pub fn sys_uptime(_args: &SyscallArgs) -> Result<usize, SysError> {
     let ticks = *TICKS.lock();
     Ok(ticks)
+}
+
+pub fn sys_poweroff(args: &SyscallArgs) -> ! {
+    let code = match args.get_int(0) as u32 {
+        0 => 0x5555,
+        c => (c << 16) | 0x3333,
+    };
+
+    println!("! powering off...");
+
+    unsafe { *(QEMU_POWER as *mut u32) = code };
+
+    unreachable!("poweroff failed");
 }

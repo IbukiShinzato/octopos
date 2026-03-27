@@ -239,6 +239,7 @@ pub enum Syscall {
     Link = 19,
     Mkdir = 20,
     Close = 21,
+    Poweroff = 22,
 }
 
 impl TryFrom<usize> for Syscall {
@@ -267,6 +268,7 @@ impl TryFrom<usize> for Syscall {
             19 => Ok(Syscall::Link),
             20 => Ok(Syscall::Mkdir),
             21 => Ok(Syscall::Close),
+            22 => Ok(Syscall::Poweroff),
             _ => Err(SysError::NotImplemented),
         }
     }
@@ -304,6 +306,7 @@ pub unsafe fn syscall(trapframe: &mut TrapFrame) {
             Syscall::Link => sys_link(&args),
             Syscall::Mkdir => sys_mkdir(&args),
             Syscall::Close => sys_close(&args),
+            Syscall::Poweroff => sys_poweroff(&args),
         },
         Err(e) => Err(e),
     };
