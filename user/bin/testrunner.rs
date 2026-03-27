@@ -3,7 +3,7 @@
 
 use user::*;
 
-const TESTS: &[&str] = &["/cow", "/sbrk"];
+const TESTS: &[&str] = &["/sbrk", "/cow"];
 
 #[unsafe(no_mangle)]
 fn main(_args: Args) {

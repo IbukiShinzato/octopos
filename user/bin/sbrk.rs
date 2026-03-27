@@ -17,6 +17,7 @@ fn test_beyond_grow() {
         *((base + 0x1000) as *mut u8) = 0x42;
     } // should kill
     println!("FAIL: write beyond grow");
+    exit(1);
 }
 
 fn test_multi_page_grow() {
@@ -36,6 +37,7 @@ fn test_shrink_untouched() {
         *(base as *mut u8) = 0x42;
     } // should kill
     println!("FAIL: write beyond shrink");
+    exit(1);
 }
 
 fn test_shrink_touched() {
@@ -48,6 +50,7 @@ fn test_shrink_touched() {
         *(base as *mut u8) = 0x42;
     } // should kill
     println!("FAIL: write beyond shrink");
+    exit(1);
 }
 
 fn test_multi_page_shrink() {
@@ -60,6 +63,7 @@ fn test_multi_page_shrink() {
         *((base + 2 * 0x1000) as *mut u8) = 0x42;
     } // should kill
     println!("FAIL: write beyond multi-page grow");
+    exit(1);
 }
 
 fn test_oom() {
@@ -116,5 +120,4 @@ fn main(_args: Args) {
     }
     wait(&mut 0).expect("sbrk: wait");
 
-    println!("done");
 }

@@ -16,7 +16,6 @@ fn test_basic_cow() {
     wait(&mut 0).expect("cow: wait");
     // parent's copy must be unchanged
     assert_eq!(val, 42, "FAIL: parent saw child's write");
-    println!("basic cow ok");
 }
 
 /// Fork a chain of children, each modifying the same variable.
@@ -34,7 +33,6 @@ fn test_fork_chain() {
     }
 
     assert_eq!(val, 0, "FAIL: parent's val was modified");
-    println!("fork chain ok");
 }
 
 /// Write a full page of data before forking, then verify child gets the right
@@ -66,7 +64,6 @@ fn test_full_page() {
             i
         );
     }
-    println!("full page ok");
 }
 
 /// Verify that writing to a page in the child process triggers lazy allocation, and does not affect
@@ -94,7 +91,6 @@ fn test_cow_lazy() {
         "FAIL: parent page should be zero-initialized"
     );
 
-    println!("cow lazy allocation ok");
 }
 
 #[unsafe(no_mangle)]
@@ -103,5 +99,4 @@ fn main(_args: Args) {
     test_fork_chain();
     test_full_page();
     test_cow_lazy();
-    println!("all cow tests passed");
 }
