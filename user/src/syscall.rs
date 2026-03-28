@@ -147,6 +147,10 @@ pub mod raw {
         syscall1(Syscall::Poweroff, code as usize);
         unreachable!();
     }
+
+    pub fn ioctl(fd: usize, cmd: usize, arg: usize) -> isize {
+        syscall3(Syscall::Ioctl, fd, cmd, arg)
+    }
 }
 
 use kernel::abi::{MAXPATH, Stat, SysError};
@@ -344,4 +348,8 @@ pub fn mkdir(path: &str) -> Result<(), SysError> {
 
 pub fn poweroff(code: u32) -> ! {
     raw::poweroff(code)
+}
+
+pub fn ioctl(fd: Fd, cmd: usize, arg: usize) -> Result<usize, SysError> {
+    check(raw::ioctl(fd.as_raw(), cmd, arg))
 }

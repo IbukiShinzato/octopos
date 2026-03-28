@@ -259,6 +259,19 @@ impl File {
             },
         }
     }
+
+    pub fn ioctl(&self, cmd: usize, arg: usize) -> Result<usize, SysError> {
+        let file_inner = FILE_TABLE.inner[self.id].lock();
+
+        match &file_inner.r#type {
+            FileType::Device { major, .. } if *major as usize == CONSOLE => {
+                Console::ioctl(cmd, arg)
+            }
+            FileType::Device { .. } => err!(SysError::NotImplemented),
+
+            _ => err!(SysError::BadDescriptor),
+        }
+    }
 }
 
 /// File open flags
@@ -277,6 +290,14 @@ impl OpenFlag {
 pub struct Device {
     pub read: fn(addr: VA, n: usize) -> Result<usize, SysError>,
     pub write: fn(addr: VA, n: usize) -> Result<usize, SysError>,
+}
+
+/// Device-specific ioctl commands
+pub struct Ioctl;
+
+impl Ioctl {
+    pub const CONSOLE_SET_RAW: usize = 1;
+    pub const CONSOLE_SET_FG_PID: usize = 2;
 }
 
 /// Console device major number

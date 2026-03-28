@@ -424,3 +424,10 @@ pub fn sys_pipe(args: &SyscallArgs) -> Result<usize, SysError> {
 
     Ok(0)
 }
+
+pub fn sys_ioctl(args: &SyscallArgs) -> Result<usize, SysError> {
+    let ioctl_cmd = args.get_int(1) as usize;
+    let ioctl_arg = args.get_int(2) as usize;
+    let (_, file) = try_log!(args.get_file(0));
+    log!(file.ioctl(ioctl_cmd, ioctl_arg))
+}

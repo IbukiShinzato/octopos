@@ -6,7 +6,6 @@ use core::str::Chars;
 
 use user::*;
 
-const MAXLINE: usize = 128;
 const MAXARGS: usize = 16;
 const MAXNODES: usize = 16;
 const MAXARGV: usize = 32;
@@ -424,15 +423,8 @@ fn main(_args: Args) {
         }
     }
 
-    let mut buf = [0u8; MAXLINE];
-
-    loop {
-        let _ = write(Fd::STDERR, b"$ ");
-
-        let Some(line) = gets(&mut buf) else {
-            break; // EOF
-        };
-
+    let mut editor = LineEditor::new();
+    while let Some(line) = editor.read_line("$ ") {
         if line.is_empty() {
             continue;
         }
