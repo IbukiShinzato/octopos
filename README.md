@@ -40,8 +40,8 @@ riscv64-elf-gdb      # .gdbinit connects to port 1234 and loads symbols automati
 ## Current State
 
 The kernel boots, initializes all subsystems, and runs a full userspace environment including a
-shell with pipes, redirections, and background jobs. Memory management includes lazy page
-allocation and copy-on-write fork.
+shell with pipes, redirections, background jobs, and an interactive line editor with history.
+Memory management includes lazy page allocation and copy-on-write fork.
 
 ## Development Plan
 
@@ -128,3 +128,9 @@ often needed to break circular dependencies.
 
 1. Lazy page allocation — sbrk() pages are allocated on first access via the page fault handler
 2. Copy-on-write fork — fork() pages marked read-only with a COW bit are copied privately on first write
+
+### Stage 11: Interactive Shell
+
+1. ioctl() syscall — device control interface; console supports raw mode and foreground PID for Ctrl-C delivery
+2. Line editor — cursor movement, rich word editing, history, ANSI arrow keys
+3. User-space I/O traits — `Read` and `Write` over `Fd`, `Stdin`, `Stdout`, `Stderr`
