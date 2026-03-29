@@ -81,6 +81,7 @@ impl Console {
             let chunk = 32.min(len - n);
             match proc::copy_from_user(src, &mut buf[..chunk]) {
                 Ok(_) => {
+                    // TODO: possibly use `write_sync` to avoid flickers, have to consider panics
                     uart::write(&buf[..chunk]);
                     n += chunk;
                     src += chunk;

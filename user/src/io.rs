@@ -70,12 +70,10 @@ macro_rules! eprintln {
     };
 }
 
-const LINE_MAX: usize = 256;
-
 #[derive(Debug, Clone, Copy)]
 pub struct LineEditor<'a> {
     /// buffer for the current line being edited
-    buf: [u8; LINE_MAX],
+    buf: [u8; LineEditor::LINE_MAX],
     /// how many bytes are in the `buf`
     len: usize,
     /// index of the character being edited in the `buf`
@@ -85,9 +83,11 @@ pub struct LineEditor<'a> {
 }
 
 impl<'a> LineEditor<'a> {
+    const LINE_MAX: usize = 256;
+
     pub fn new() -> Self {
         Self {
-            buf: [0; LINE_MAX],
+            buf: [0; Self::LINE_MAX],
             len: 0,
             cursor: 0,
             prompt: "",
@@ -108,15 +108,18 @@ impl<'a> LineEditor<'a> {
             read(Fd::STDIN, &mut c).unwrap();
 
             match c[0] {
+                // enter
                 b'\n' | b'\r' => {
                     Stdout.write_str("\r\n").unwrap();
                     break;
                 }
 
+                // backspace or delete
                 b'\x08' | b'\x7f' => {
                     self.backspace();
                 }
 
+                // start of escape sequence
                 b'\x1b' => {
                     self.handle_escape();
                 }
@@ -141,6 +144,12 @@ impl<'a> LineEditor<'a> {
                     self.kill_word();
                 }
 
+                // Ctrl-L
+                b'\x0c' => {
+                    self.redraw_full();
+                }
+
+                // normal character
                 c if c.is_ascii_graphic() || c == b' ' => {
                     self.insert(c);
                 }
@@ -270,31 +279,69 @@ impl<'a> LineEditor<'a> {
     }
 
     fn redraw(&self) {
+        // Worst case: "\r\x1b[K" (4) + prompt + buf (256) + "\x1b[999D" (7)
+        let mut out = [0u8; 512];
+        let mut n = 0;
+
         // move cursor to start of line
-        // erase everything to the right of the cursor
-        Stdout.write_str("\r\x1b[K").unwrap();
+        out[n] = b'\r';
+        n += 1;
 
-        Stdout.write_str(self.prompt).unwrap();
+        // prompt
+        let prompt = self.prompt.as_bytes();
+        out[n..n + prompt.len()].copy_from_slice(prompt);
+        n += prompt.len();
 
-        // write input buffer
-        Stdout
-            .write_str(unsafe { str::from_utf8_unchecked(&self.buf[..self.len]) })
-            .unwrap();
+        // line content
+        out[n..n + self.len].copy_from_slice(&self.buf[..self.len]);
+        n += self.len;
+
+        // erase trailing characters from previous longer line
+        out[n..n + 3].copy_from_slice(b"\x1b[K");
+        n += 3;
 
         // move cursor to correct position if it isn't already
         let back = self.len - self.cursor;
         if back > 0 {
-            Stdout.write_fmt(format_args!("\x1b[{}D", back)).unwrap();
+            out[n] = b'\x1b';
+            out[n + 1] = b'[';
+            n += 2;
+            n += write_decimal(&mut out[n..], back);
+            out[n] = b'D';
+            n += 1;
         }
+
+        write(Fd::STDOUT, &out[..n]).unwrap();
     }
 
-    // fn redraw_full(&self, prompt: &str) {
-    //     todo!()
-    // }
+    fn redraw_full(&self) {
+        // \x1b[2J clears the entire screen, \x1b[H moves cursor to top-left
+        write(Fd::STDOUT, b"\x1b[2J\x1b[H").unwrap();
+        self.redraw();
+    }
 }
 
 impl<'a> Default for LineEditor<'a> {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn write_decimal(buf: &mut [u8], mut n: usize) -> usize {
+    let mut tmp = [0u8; 10];
+    let mut i = 0;
+    if n == 0 {
+        buf[i] = b'0';
+        return 1;
+    }
+
+    while n > 0 {
+        tmp[i] = b'0' + (n % 10) as u8;
+        i += 1;
+        n /= 10;
+    }
+
+    tmp[..i].reverse();
+    buf[..i].copy_from_slice(&tmp[..i]);
+    i
 }
