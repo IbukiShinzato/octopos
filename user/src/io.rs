@@ -80,10 +80,25 @@ pub struct LineEditor<'a> {
     cursor: usize,
     /// the prompt to display before the line editor
     prompt: &'a str,
+
+    /// circular buffer of previous lines entered
+    history: [[u8; LineEditor::LINE_MAX]; LineEditor::HISTORY_SIZE],
+    /// length of each entry in `history`
+    history_lens: [usize; LineEditor::HISTORY_SIZE],
+    /// number of entries in `history`, circular index
+    history_entries: usize,
+    /// index of the current entry in `history` being displayed
+    /// 0 = current line, 1 = most-recent entry
+    history_offset: usize,
+    /// buffer for stashing the current line when navigating history
+    stashed_buf: [u8; LineEditor::LINE_MAX],
+    /// length of the stashed line
+    stashed_len: usize,
 }
 
 impl<'a> LineEditor<'a> {
     const LINE_MAX: usize = 256;
+    const HISTORY_SIZE: usize = 16;
 
     pub fn new() -> Self {
         Self {
@@ -91,6 +106,12 @@ impl<'a> LineEditor<'a> {
             len: 0,
             cursor: 0,
             prompt: "",
+            history: [[0; Self::LINE_MAX]; Self::HISTORY_SIZE],
+            history_lens: [0; Self::HISTORY_SIZE],
+            history_entries: 0,
+            history_offset: 0,
+            stashed_buf: [0; Self::LINE_MAX],
+            stashed_len: 0,
         }
     }
 
@@ -166,6 +187,11 @@ impl<'a> LineEditor<'a> {
 
         ioctl(Fd::STDIN, Ioctl::CONSOLE_SET_RAW, 0).expect("failed to set console to cooked mode");
 
+        if self.len > 0 {
+            self.add_to_history();
+        }
+        self.history_offset = 0;
+
         Some(unsafe { str::from_utf8_unchecked(&self.buf[..self.len]) })
     }
 
@@ -177,6 +203,8 @@ impl<'a> LineEditor<'a> {
         read(Fd::STDIN, &mut seq[1..]).unwrap();
 
         match seq {
+            [b'[', b'A'] => self.history_up(),
+            [b'[', b'B'] => self.history_down(),
             [b'[', b'D'] => self.move_left(),
             [b'[', b'C'] => self.move_right(),
             _ => {}
@@ -317,6 +345,57 @@ impl<'a> LineEditor<'a> {
     fn redraw_full(&self) {
         // \x1b[2J clears the entire screen, \x1b[H moves cursor to top-left
         write(Fd::STDOUT, b"\x1b[2J\x1b[H").unwrap();
+        self.redraw();
+    }
+
+    fn add_to_history(&mut self) {
+        let slot = self.history_entries % Self::HISTORY_SIZE;
+        self.history[slot][..self.len].copy_from_slice(&self.buf[..self.len]);
+        self.history_lens[slot] = self.len;
+        self.history_entries += 1;
+    }
+
+    fn load_from_history(&mut self) {
+        let slot = (self.history_entries - self.history_offset) % Self::HISTORY_SIZE;
+        let len = self.history_lens[slot];
+        self.buf[..len].copy_from_slice(&self.history[slot][..len]);
+        self.len = len;
+        self.cursor = len;
+    }
+
+    fn history_up(&mut self) {
+        let available = self.history_entries.min(Self::HISTORY_SIZE);
+        if self.history_offset >= available {
+            return;
+        }
+
+        if self.history_offset == 0 {
+            // stash current line before replacing it
+            self.stashed_buf[..self.len].copy_from_slice(&self.buf[..self.len]);
+            self.stashed_len = self.len;
+        }
+
+        self.history_offset += 1;
+        self.load_from_history();
+        self.redraw();
+    }
+
+    fn history_down(&mut self) {
+        if self.history_offset == 0 {
+            return;
+        }
+
+        self.history_offset -= 1;
+
+        if self.history_offset == 0 {
+            // restore stashed line
+            self.buf[..self.stashed_len].copy_from_slice(&self.stashed_buf[..self.stashed_len]);
+            self.len = self.stashed_len;
+            self.cursor = self.stashed_len;
+        } else {
+            self.load_from_history();
+        }
+
         self.redraw();
     }
 }
