@@ -86,7 +86,10 @@ fn main(_args: Args) {
 
             let count = count_primes(worker_start, worker_end) as u64;
 
-            write(pipes[i].1, &count.to_le_bytes()).expect("primes: write failed");
+            pipes[i]
+                .1
+                .write_all(&count.to_le_bytes())
+                .expect("primes: write failed");
             close(pipes[i].1).expect("primes: close failed");
 
             exit(0);
@@ -108,9 +111,9 @@ fn main(_args: Args) {
 
     // Sum the partial counts from each worker's pipe.
     let mut par_total = 0;
-    for &(read_fd, _) in pipes.iter() {
+    for &mut (mut read_fd, _) in pipes.iter_mut() {
         let mut buf = [0u8; 8];
-        read(read_fd, &mut buf).expect("primes: read failed");
+        read_fd.read_exact(&mut buf).expect("primes: read failed");
         close(read_fd).expect("primes: close failed");
         par_total += u64::from_le_bytes(buf) as usize;
     }

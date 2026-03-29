@@ -3,17 +3,13 @@
 
 use user::*;
 
-fn cat(fd: Fd) {
+fn cat(mut fd: Fd) {
     let mut buf = [0u8; 512];
 
     loop {
-        match read(fd, &mut buf) {
+        match fd.read(&mut buf) {
             Ok(0) => break,
-            Ok(n) => {
-                if write(Fd::STDOUT, &buf[..n]) != Ok(n) {
-                    exit_with_msg("cat: write error");
-                }
-            }
+            Ok(n) => Stdout.write_all(&buf[..n]).expect("cat: write error"),
             Err(_) => exit_with_msg("cat: read error"),
         }
     }

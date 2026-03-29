@@ -64,12 +64,12 @@ fn demo_process_management() {
 fn demo_pipe_ipc() {
     println!("[2] Pipe IPC");
 
-    let (read_fd, write_fd) = pipe().unwrap_or_else(|_| exit_with_msg("demo: pipe failed"));
+    let (mut read_fd, mut write_fd) = pipe().unwrap_or_else(|_| exit_with_msg("demo: pipe failed"));
 
     match fork().unwrap_or_else(|_| exit_with_msg("demo: fork failed")) {
         0 => {
             close(read_fd).expect("demo: close failed");
-            write(write_fd, b"Hello from child!").expect("demo: write failed");
+            write_fd.write_all(b"Hello from child!").expect("demo: write failed");
             close(write_fd).expect("demo: close failed");
             exit(0);
         }
@@ -77,7 +77,7 @@ fn demo_pipe_ipc() {
             close(write_fd).expect("demo: close failed");
 
             let mut buf = [0u8; 64];
-            let n = read(read_fd, &mut buf).expect("demo: read failed");
+            let n = read_fd.read(&mut buf).expect("demo: read failed");
             close(read_fd).expect("demo: close failed");
 
             let mut status = 0;

@@ -13,7 +13,7 @@ fn type_char(t: InodeType) -> char {
 }
 
 fn ls(path: &str) {
-    let Ok(fd) = open(path, OpenFlag::READ_ONLY) else {
+    let Ok(mut fd) = open(path, OpenFlag::READ_ONLY) else {
         eprintln!("ls: cannot open {}", path);
         return;
     };
@@ -29,7 +29,7 @@ fn ls(path: &str) {
         InodeType::Free => {}
         InodeType::Directory => {
             let mut buf = [0u8; size_of::<Directory>()];
-            while read(fd, &mut buf) == Ok(buf.len()) {
+            while fd.read(&mut buf) == Ok(buf.len()) {
                 let dir: &Directory = unsafe { &*(buf.as_ptr() as *const Directory) };
 
                 if dir.inum == 0 {

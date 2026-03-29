@@ -3,7 +3,7 @@
 
 use user::*;
 
-fn wc(fd: Fd, name: &str) {
+fn wc(mut fd: Fd, name: &str) {
     let mut l = 0;
     let mut w = 0;
     let mut c = 0;
@@ -11,7 +11,7 @@ fn wc(fd: Fd, name: &str) {
 
     let mut buf = [0u8; 512];
 
-    while let Ok(n) = read(fd, &mut buf) {
+    while let Ok(n) = fd.read(&mut buf) {
         if n == 0 {
             println!("{} {} {} {}", l, w, c, name);
             return;
