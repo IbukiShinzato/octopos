@@ -162,5 +162,12 @@ test = false
 doctest = false
 bench = false
 
+[[bin]]
+name = "proc"
+path = "testbin/proc.rs"
+test = false
+doctest = false
+bench = false
+
 [dependencies]
 kernel = { package = "octopos", path = "../kernel", version = "1.0.0" }

@@ -1,0 +1,139 @@
+#![no_std]
+#![no_main]
+
+use user::*;
+
+/// getpid must return a valid (non-zero) pid, and a forked child must receive a
+/// different pid from its parent.
+fn test_getpid() {
+    let parent_pid = getpid();
+    assert!(parent_pid > 0, "parent pid must be non-zero");
+
+    let pid = fork().expect("fork");
+    if pid == 0 {
+        let child_pid = getpid();
+        // Communicate the result through the exit code: exit(0) = pid was different.
+        exit(if child_pid != parent_pid { 0 } else { 1 });
+    }
+
+    let mut code = 0;
+    wait(&mut code).expect("wait");
+    assert_eq!(code, 0, "child reported same pid as parent");
+}
+
+/// wait() with no living children must return ECHILD.
+fn test_wait_no_children() {
+    let result = wait(&mut 0);
+    assert!(result.is_err(), "wait with no children must fail");
+}
+
+/// Fork several children with known exit codes, collect them all with wait, and
+/// verify that each code is received exactly once. This exercises multi-child
+/// reaping regardless of scheduling order.
+fn test_multiple_children() {
+    const N: usize = 4;
+
+    for i in 0..N {
+        let pid = fork().expect("fork");
+        if pid == 0 {
+            exit(i + 1); // exit codes 1..=N
+        }
+    }
+
+    // Collect N children; track which exit codes we've seen.
+    let mut seen = [false; N + 1]; // index 0 unused; 1..=N are valid codes
+    for _ in 0..N {
+        let mut code = 0usize;
+        wait(&mut code).expect("wait");
+        assert!((1..=N).contains(&code), "unexpected exit code {}", code);
+        assert!(!seen[code], "duplicate exit code {}", code);
+        seen[code] = true;
+    }
+
+    for (i, received) in seen.iter().enumerate().skip(1) {
+        assert!(received, "exit code {} was never received", i);
+    }
+}
+
+/// Killing a child process must cause wait to return for that child.
+/// The child sleeps in a loop; the parent kills it after a brief yield, then waits.
+fn test_kill() {
+    let (read_fd, write_fd) = pipe().expect("pipe");
+
+    let pid = fork().expect("fork");
+    if pid == 0 {
+        // The child signals readiness by writing a byte, then sleeps indefinitely.
+        close(read_fd).expect("child close read");
+        write(write_fd, b"r").expect("child signal ready");
+        close(write_fd).expect("child close write");
+        loop {
+            sleep(100).ok(); // sleeps until killed
+        }
+    }
+
+    // Parent waits for the ready signal before killing.
+    close(write_fd).expect("parent close write");
+    let mut buf = [0u8; 1];
+    read(read_fd, &mut buf).expect("parent read ready signal");
+    close(read_fd).expect("parent close read");
+
+    kill(pid).expect("kill");
+
+    // wait must return and reap the killed child.
+    let mut code = 0usize;
+    let reaped = wait(&mut code).expect("wait after kill");
+    assert_eq!(reaped, pid, "reaped wrong pid");
+    // A killed process exits with a non-zero status.
+    assert_ne!(code, 0, "killed child must have non-zero exit code");
+}
+
+/// kill on a pid that does not exist must return an error.
+fn test_kill_invalid_pid() {
+    // Add a large offset to our own pid to get a pid that cannot exist: pids are
+    // assigned sequentially from 1 and the process table is bounded by NPROC=64,
+    // so getpid() + 10000 is guaranteed to be unallocated during a test run.
+    //
+    // NOTE: pid 0 would seem like an obvious choice but the kernel currently
+    // matches it against Unused proc slots (which hold the default Pid(0)),
+    // returning success incorrectly. See SESSION.md for details.
+    let impossible_pid = getpid() + 10000;
+    let result = kill(impossible_pid);
+    assert!(result.is_err(), "kill of nonexistent pid must fail");
+}
+
+/// A process can wait for a grandchild via its direct child only. Once the child
+/// exits, the parent's wait returns and the grandchild is re-parented to init.
+/// This verifies that wait does not block on processes it did not fork.
+fn test_wait_only_own_children() {
+    let pid = fork().expect("fork");
+    if pid == 0 {
+        // Grandchild: exit immediately.
+        let grandchild = fork().expect("grandchild fork");
+        if grandchild == 0 {
+            exit(0);
+        }
+        // Child: do NOT wait for the grandchild; exit straight away.
+        // The grandchild will be re-parented to init.
+        exit(0);
+    }
+
+    // Parent: wait for the direct child only.
+    let mut code = 0usize;
+    let reaped = wait(&mut code).expect("wait");
+    assert_eq!(reaped, pid, "reaped wrong pid");
+    assert_eq!(code, 0, "child exit code");
+
+    // A second wait must fail because the parent has no more direct children.
+    let result = wait(&mut 0);
+    assert!(result.is_err(), "second wait must return ECHILD");
+}
+
+#[unsafe(no_mangle)]
+fn main(_args: Args) {
+    test_getpid();
+    test_wait_no_children();
+    test_multiple_children();
+    test_kill();
+    test_kill_invalid_pid();
+    test_wait_only_own_children();
+}
