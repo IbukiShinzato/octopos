@@ -55,8 +55,7 @@ struct ElfHeader {
 impl ElfHeader {
     pub const SIZE: usize = size_of::<Self>();
 
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        assert!(bytes.len() >= Self::SIZE);
+    pub fn from_bytes(bytes: &[u8; Self::SIZE]) -> Self {
         unsafe { core::ptr::read_unaligned(bytes.as_ptr() as *const Self) }
     }
 }
@@ -81,8 +80,7 @@ impl ProgramHeader {
     // Values for type
     pub const ELF_PROG_LOAD: u32 = 1;
 
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        assert!(bytes.len() >= Self::SIZE);
+    pub fn from_bytes(bytes: &[u8; Self::SIZE]) -> Self {
         unsafe { core::ptr::read_unaligned(bytes.as_ptr() as *const Self) }
     }
 
