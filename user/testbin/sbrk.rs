@@ -15,12 +15,14 @@ fn test_grow() {
 fn test_beyond_grow() {
     let base = sbrk(0x1000).expect("grow");
 
-    if fork().unwrap_or_else(|_| exit_with_msg("sbrk: fork failed")) == 0 {
+    if fork().expect("fork") == 0 {
         unsafe { *((base + 0x1000) as *mut u8) = 0x42 };
-        println!("FAIL: write beyond grow");
-        exit(1);
+        unreachable!("write beyond grow");
     }
-    wait(&mut 0).expect("sbrk: wait");
+
+    let mut code = 0;
+    wait(&mut code).expect("wait");
+    assert_eq!(code as isize, -1, "child was not killed correctly");
 }
 
 fn test_multi_page_grow() {
@@ -37,46 +39,52 @@ fn test_multi_page_grow() {
 fn test_shrink_untouched() {
     let base = sbrk(0x1000).expect("grow");
 
-    if fork().unwrap_or_else(|_| exit_with_msg("sbrk: fork failed")) == 0 {
+    if fork().expect("fork") == 0 {
         sbrk(-0x1000).expect("shrink");
         unsafe { *(base as *mut u8) = 0x42 };
-        println!("FAIL: write beyond shrink");
-        exit(1);
+        unreachable!("write beyond untouched shrink");
     }
-    wait(&mut 0).expect("sbrk: wait");
+
+    let mut code = 0;
+    wait(&mut code).expect("wait");
+    assert_eq!(code as isize, -1, "child was not killed correctly");
 }
 
 /// Shrinking a page that was previously written to, then writing to it again, should kill the process.
 fn test_shrink_touched() {
     let base = sbrk(0x1000).expect("grow");
 
-    if fork().unwrap_or_else(|_| exit_with_msg("sbrk: fork failed")) == 0 {
+    if fork().expect("fork") == 0 {
         unsafe { *(base as *mut u8) = 0x42 };
         sbrk(-0x1000).expect("shrink");
         unsafe { *(base as *mut u8) = 0x42 };
-        println!("FAIL: write beyond shrink");
-        exit(1);
+        unreachable!("write beyond touched shrink");
     }
-    wait(&mut 0).expect("sbrk: wait");
+
+    let mut code = 0;
+    wait(&mut code).expect("wait");
+    assert_eq!(code as isize, -1, "child was not killed correctly");
 }
 
 /// After shrinking multiple pages, writing into any of the removed pages should kill the process.
 fn test_multi_page_shrink() {
     let base = sbrk(4 * 0x1000).expect("grow 4 pages");
 
-    if fork().unwrap_or_else(|_| exit_with_msg("sbrk: fork failed")) == 0 {
+    if fork().expect("fork") == 0 {
         unsafe { *((base + 3 * 0x1000) as *mut u8) = 0x42 };
         sbrk(-4 * 0x1000).expect("shrink 4 pages");
         unsafe { *((base + 2 * 0x1000) as *mut u8) = 0x42 };
-        println!("FAIL: write beyond multi-page shrink");
-        exit(1);
+        unreachable!("write beyond multi-page shrink");
     }
-    wait(&mut 0).expect("sbrk: wait");
+
+    let mut code = 0;
+    wait(&mut code).expect("wait");
+    assert_eq!(code as isize, -1, "child was not killed correctly");
 }
 
 /// Growing indefinitely should eventually exhaust memory and kill the process.
 fn test_oom() {
-    if fork().unwrap_or_else(|_| exit_with_msg("sbrk: fork failed")) == 0 {
+    if fork().expect("fork") == 0 {
         loop {
             let base = sbrk(0x1000).expect("grow");
             unsafe {
@@ -85,7 +93,10 @@ fn test_oom() {
             }
         }
     }
-    wait(&mut 0).expect("sbrk: wait");
+
+    let mut code = 0;
+    wait(&mut code).expect("wait");
+    assert_eq!(code as isize, -1, "child was not killed correctly");
 }
 
 #[unsafe(no_mangle)]

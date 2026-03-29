@@ -7,15 +7,17 @@ use user::*;
 fn test_basic_cow() {
     let mut val: u32 = 42;
 
-    if fork().unwrap_or_else(|_| exit_with_msg("cow: fork failed")) == 0 {
+    if fork().expect("fork") == 0 {
         val = 99;
         assert_eq!(val, 99);
         exit(0);
     }
 
-    wait(&mut 0).expect("cow: wait");
-    // parent's copy must be unchanged
-    assert_eq!(val, 42, "FAIL: parent saw child's write");
+    let mut code = 0;
+    wait(&mut code).expect("wait");
+    assert_eq!(code, 0, "child did not exit cleanly");
+
+    assert_eq!(val, 42, "parent saw child's write");
 }
 
 /// Fork a chain of children, each modifying the same variable.
@@ -24,15 +26,18 @@ fn test_fork_chain() {
     let mut val = 0;
 
     for i in 0..4 {
-        if fork().unwrap_or_else(|_| exit_with_msg("cow: fork failed")) == 0 {
+        if fork().expect("fork") == 0 {
             val = i;
             assert_eq!(val, i);
             exit(0);
         }
-        wait(&mut 0).expect("cow: wait");
+
+        let mut code = 0;
+        wait(&mut code).expect("wait");
+        assert_eq!(code, 0, "child did not exit cleanly");
     }
 
-    assert_eq!(val, 0, "FAIL: parent's val was modified");
+    assert_eq!(val, 0, "parent's val was modified");
 }
 
 /// Write a full page of data before forking, then verify child gets the right
@@ -45,7 +50,7 @@ fn test_full_page() {
         unsafe { *page.add(i) = (i & 0xFF) as u8 };
     }
 
-    if fork().unwrap_or_else(|_| exit_with_msg("cow: fork failed")) == 0 {
+    if fork().expect("fork") == 0 {
         // overwrite entire page in child
         for i in 0..0x1000 {
             unsafe { *page.add(i) = 0xFF };
@@ -53,14 +58,16 @@ fn test_full_page() {
         exit(0);
     }
 
-    wait(&mut 0).expect("cow: wait");
+    let mut code = 0;
+    wait(&mut code).expect("wait");
+    assert_eq!(code, 0, "child did not exit cleanly");
 
     // parent's page must still hold the original pattern
     for i in 0..0x1000 {
         assert_eq!(
             unsafe { *page.add(i) },
             (i & 0xFF) as u8,
-            "FAIL: parent page corrupted at offset {}",
+            "parent page corrupted at offset {}",
             i
         );
     }
@@ -71,24 +78,26 @@ fn test_full_page() {
 fn test_cow_lazy() {
     let base = sbrk(0x1000).expect("grow");
 
-    if fork().unwrap_or_else(|_| exit_with_msg("cow: fork failed")) == 0 {
+    if fork().expect("fork") == 0 {
         // write to the page in child, which should trigger lazy allocation
         unsafe { *(base as *mut u8) = 42 };
         assert_eq!(
             unsafe { *(base as *mut u8) },
             42,
-            "FAIL: child page should have been lazily allocated and modified"
+            "child page should have been lazily allocated and modified"
         );
         exit(0);
     }
 
-    wait(&mut 0).expect("cow: wait");
+    let mut code = 0;
+    wait(&mut code).expect("wait");
+    assert_eq!(code, 0, "child did not exit cleanly");
 
     // parent's page should still be zero-initialized
     assert_eq!(
         unsafe { *(base as *mut u8) },
         0,
-        "FAIL: parent page should be zero-initialized"
+        "parent page should be zero-initialized"
     );
 }
 

@@ -9,8 +9,7 @@ fn test_getpid() {
     let parent_pid = getpid();
     assert!(parent_pid > 0, "parent pid must be non-zero");
 
-    let pid = fork().expect("fork");
-    if pid == 0 {
+    if fork().expect("fork") == 0 {
         let child_pid = getpid();
         // Communicate the result through the exit code: exit(0) = pid was different.
         exit(if child_pid != parent_pid { 0 } else { 1 });
@@ -21,10 +20,13 @@ fn test_getpid() {
     assert_eq!(code, 0, "child reported same pid as parent");
 }
 
-/// wait() with no living children must return ECHILD.
+/// wait() with no living children must return `NoChildren`.
 fn test_wait_no_children() {
-    let result = wait(&mut 0);
-    assert!(result.is_err(), "wait with no children must fail");
+    assert_eq!(
+        wait(&mut 0),
+        Err(SysError::NoChildren),
+        "wait with no children must fail"
+    );
 }
 
 /// Fork several children with known exit codes, collect them all with wait, and
@@ -34,8 +36,7 @@ fn test_multiple_children() {
     const N: usize = 4;
 
     for i in 0..N {
-        let pid = fork().expect("fork");
-        if pid == 0 {
+        if fork().expect("fork") == 0 {
             exit(i + 1); // exit codes 1..=N
         }
     }
@@ -43,7 +44,7 @@ fn test_multiple_children() {
     // Collect N children; track which exit codes we've seen.
     let mut seen = [false; N + 1]; // index 0 unused; 1..=N are valid codes
     for _ in 0..N {
-        let mut code = 0usize;
+        let mut code = 0;
         wait(&mut code).expect("wait");
         assert!((1..=N).contains(&code), "unexpected exit code {}", code);
         assert!(!seen[code], "duplicate exit code {}", code);
@@ -73,32 +74,27 @@ fn test_kill() {
 
     // Parent waits for the ready signal before killing.
     close(write_fd).expect("parent close write");
-    let mut buf = [0u8; 1];
+    let mut buf = [0; 1];
     read(read_fd, &mut buf).expect("parent read ready signal");
     close(read_fd).expect("parent close read");
 
     kill(pid).expect("kill");
 
     // wait must return and reap the killed child.
-    let mut code = 0usize;
+    let mut code = 0;
     let reaped = wait(&mut code).expect("wait after kill");
     assert_eq!(reaped, pid, "reaped wrong pid");
-    // A killed process exits with a non-zero status.
-    assert_ne!(code, 0, "killed child must have non-zero exit code");
+    // A killed process exits with a -1 status.
+    assert_eq!(code as isize, -1, "killed child must have -1 exit code");
 }
 
 /// kill on a pid that does not exist must return an error.
 fn test_kill_invalid_pid() {
-    // Add a large offset to our own pid to get a pid that cannot exist: pids are
-    // assigned sequentially from 1 and the process table is bounded by NPROC=64,
-    // so getpid() + 10000 is guaranteed to be unallocated during a test run.
-    //
-    // NOTE: pid 0 would seem like an obvious choice but the kernel currently
-    // matches it against Unused proc slots (which hold the default Pid(0)),
-    // returning success incorrectly. See SESSION.md for details.
-    let impossible_pid = getpid() + 10000;
-    let result = kill(impossible_pid);
-    assert!(result.is_err(), "kill of nonexistent pid must fail");
+    assert_eq!(
+        kill(0),
+        Err(SysError::NoProcess),
+        "kill with invalid pid must fail"
+    );
 }
 
 /// A process can wait for a grandchild via its direct child only. Once the child
@@ -118,14 +114,17 @@ fn test_wait_only_own_children() {
     }
 
     // Parent: wait for the direct child only.
-    let mut code = 0usize;
+    let mut code = 0;
     let reaped = wait(&mut code).expect("wait");
     assert_eq!(reaped, pid, "reaped wrong pid");
     assert_eq!(code, 0, "child exit code");
 
     // A second wait must fail because the parent has no more direct children.
-    let result = wait(&mut 0);
-    assert!(result.is_err(), "second wait must return ECHILD");
+    assert_eq!(
+        wait(&mut 0),
+        Err(SysError::NoChildren),
+        "wait with no children must fail"
+    );
 }
 
 #[unsafe(no_mangle)]

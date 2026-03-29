@@ -3,8 +3,8 @@
 
 use user::*;
 
-/// Write data into the write end of a pipe, close it, then drain the read end and
-/// verify that every byte arrives intact.
+/// Write data into the write end of a pipe, close it, then drain the read end and verify that every
+/// byte arrives intact.
 fn test_basic_read_write() {
     let (read_fd, write_fd) = pipe().expect("pipe");
 
@@ -26,13 +26,12 @@ fn test_basic_read_write() {
     close(read_fd).expect("close read end");
 }
 
-/// A read on an empty pipe whose write end is still open blocks until data arrives.
-/// We verify this by writing from a child process and reading in the parent.
+/// A read on an empty pipe whose write end is still open blocks until data arrives. We verify this
+/// by writing from a child process and reading in the parent.
 fn test_read_blocks_until_write() {
     let (read_fd, write_fd) = pipe().expect("pipe");
 
-    let pid = fork().expect("fork");
-    if pid == 0 {
+    if fork().expect("fork") == 0 {
         // Child: close the read end it inherited, then write a small message.
         close(read_fd).expect("child close read");
         write(write_fd, b"hello").expect("child write");
@@ -48,22 +47,23 @@ fn test_read_blocks_until_write() {
     assert_eq!(n, 5, "parent read byte count");
     assert_eq!(&buf[..n], b"hello", "parent read data");
 
-    // Reap the child; assert it exited cleanly.
     let mut code = 0;
     wait(&mut code).expect("wait");
-    assert_eq!(code, 0, "child exit code");
+    assert_eq!(code, 0, "child did not exit cleanly");
 
     close(read_fd).expect("parent close read");
 }
 
-/// Writing to a pipe whose read end has been closed must return an error (EPIPE /
-/// broken pipe).
+/// Writing to a pipe whose read end has been closed must return an error (EPIPE / broken pipe).
 fn test_write_to_closed_read_end() {
     let (read_fd, write_fd) = pipe().expect("pipe");
     close(read_fd).expect("close read end");
 
-    let result = write(write_fd, b"data");
-    assert!(result.is_err(), "write to broken pipe must fail");
+    assert_eq!(
+        write(write_fd, b"data"),
+        Err(SysError::BrokenPipe),
+        "write to broken pipe must fail"
+    );
 
     close(write_fd).expect("close write end");
 }
@@ -73,8 +73,7 @@ fn test_write_to_closed_read_end() {
 fn test_parent_writes_child_reads() {
     let (read_fd, write_fd) = pipe().expect("pipe");
 
-    let pid = fork().expect("fork");
-    if pid == 0 {
+    if fork().expect("fork") == 0 {
         // Child: close the write end it inherited, read, then verify.
         close(write_fd).expect("child close write");
         let mut buf = [0u8; 16];

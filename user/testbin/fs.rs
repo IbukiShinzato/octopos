@@ -26,8 +26,11 @@ fn test_create_write_read() {
 
 /// Opening a nonexistent file without O_CREATE must return an error.
 fn test_open_nonexistent() {
-    let result = open("/fs_does_not_exist", OpenFlag::READ_ONLY);
-    assert!(result.is_err(), "open nonexistent should fail");
+    assert_eq!(
+        open("/fs_does_not_exist", OpenFlag::READ_ONLY),
+        Err(SysError::NoEntry),
+        "open nonexistent should fail"
+    );
 }
 
 /// fstat on an open file must report the correct type, size, and nlink.
@@ -137,12 +140,20 @@ fn test_open_flags() {
     close(fd).expect("close");
 
     let fd = open("/fs_flags", OpenFlag::READ_ONLY).expect("open rdonly");
-    assert!(write(fd, b"nope").is_err(), "write to rdonly must fail");
+    assert_eq!(
+        write(fd, b"nope"),
+        Err(SysError::BadDescriptor),
+        "write to rdonly must fail"
+    );
     close(fd).expect("close rdonly");
 
     let fd = open("/fs_flags", OpenFlag::WRITE_ONLY).expect("open wronly");
     let mut buf = [0u8; 8];
-    assert!(read(fd, &mut buf).is_err(), "read from wronly must fail");
+    assert_eq!(
+        read(fd, &mut buf),
+        Err(SysError::BadDescriptor),
+        "read from wronly must fail"
+    );
     close(fd).expect("close wronly");
 
     unlink("/fs_flags").expect("unlink");

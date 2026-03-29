@@ -17,7 +17,7 @@ fn test_dup_shared_offset() {
     let fd2 = dup(fd).expect("dup");
 
     // Read first half through fd.
-    let mut buf = [0u8; 3];
+    let mut buf = [0; 3];
     let n = read(fd, &mut buf).expect("read fd");
     assert_eq!(n, 3, "first read byte count");
     assert_eq!(&buf, b"abc", "first read data");
@@ -47,7 +47,7 @@ fn test_dup_pipe_write_end() {
     // Close the last write end — reader should now get EOF.
     close(write_fd2).expect("close dup write end");
 
-    let mut buf = [0u8; 8];
+    let mut buf = [0; 8];
     let n = read(read_fd, &mut buf).expect("read data");
     assert_eq!(n, 5, "read byte count");
     assert_eq!(&buf[..n], b"hello", "read data");
@@ -67,10 +67,9 @@ fn test_fd_inheritance_across_fork() {
 
     let fd = open("/fd_inherit", OpenFlag::READ_ONLY).expect("open");
 
-    let pid = fork().expect("fork");
-    if pid == 0 {
+    if fork().expect("fork") == 0 {
         // Child: read from the inherited fd without any open() call.
-        let mut buf = [0u8; 9];
+        let mut buf = [0; 9];
         let n = read(fd, &mut buf).expect("child read");
         let ok = n == 9 && &buf == b"inherited";
         close(fd).expect("child close");
@@ -98,15 +97,14 @@ fn test_fork_inherited_offset() {
     let fd = open("/fd_shared_off", OpenFlag::READ_ONLY).expect("open");
 
     // Advance offset to 3 in the parent before forking.
-    let mut buf = [0u8; 3];
+    let mut buf = [0; 3];
     let n = read(fd, &mut buf).expect("parent pre-fork read");
     assert_eq!(n, 3);
     assert_eq!(&buf, b"ABC", "parent pre-fork data");
 
-    let pid = fork().expect("fork");
-    if pid == 0 {
+    if fork().expect("fork") == 0 {
         // The child inherits offset=3, so it should read the second half.
-        let mut buf = [0u8; 3];
+        let mut buf = [0; 3];
         let n = read(fd, &mut buf).expect("child read");
         let ok = n == 3 && &buf == b"DEF";
         close(fd).expect("child close");
@@ -156,7 +154,7 @@ fn test_nofile_limit() {
 
     // 3 fds (stdin/stdout/stderr) are pre-occupied, so we expect to have
     // opened exactly NOFILE - 3 files before hitting the limit.
-    assert_eq!(opened, NOFILE - 3, "must have opened at least one fd");
+    assert_eq!(opened, NOFILE - 3, "must opened NOFILE-3 files");
 
     // After closing all opened fds, opening one more must succeed again.
     for fd in fds.iter().take(opened) {

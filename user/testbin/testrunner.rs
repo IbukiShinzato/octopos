@@ -15,14 +15,13 @@ fn main(_args: Args) {
     for name in TESTS {
         print!("test {} ... ", &name[1..]);
 
-        let pid = fork().unwrap_or_else(|_| exit_with_msg("testrunner: fork failed"));
-        if pid == 0 {
+        if fork().expect("fork") == 0 {
             exec(name, &[&name[1..]]);
-            exit(1);
+            unreachable!("exec failed");
         }
 
         let mut code = 0;
-        wait(&mut code).expect("testrunner: wait failed");
+        wait(&mut code).expect("wait failed");
 
         if code == 0 {
             println!("ok");
