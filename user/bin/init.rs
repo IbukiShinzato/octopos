@@ -13,7 +13,7 @@ fn main(_args: Args) {
     dup(Fd::STDIN).expect("init: dup stdout");
     dup(Fd::STDIN).expect("init: dup stderr");
 
-    let test_mode = open("testmode", OpenFlag::READ_ONLY).is_ok();
+    let test_mode = open("testmode", OpenFlag::READ_ONLY).map(close).is_ok();
 
     loop {
         let Ok(pid) = fork() else {
