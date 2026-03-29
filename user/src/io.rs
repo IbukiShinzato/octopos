@@ -70,6 +70,8 @@ macro_rules! eprintln {
     };
 }
 
+/// A line editor for reading user input from the console, supporting basic editing
+/// and a history of previous lines entered.
 #[derive(Debug, Clone, Copy)]
 pub struct LineEditor<'a> {
     /// buffer for the current line being edited
@@ -170,15 +172,23 @@ impl<'a> LineEditor<'a> {
                     self.redraw_full();
                 }
 
-                // normal character
-                c if c.is_ascii_graphic() || c == b' ' => {
-                    self.insert(c);
-                }
-
-                // EOF
+                // Ctrl-D
                 b'\x04' if self.len == 0 => {
                     Stdout.write_str("\r\n").unwrap();
                     return None;
+                }
+
+                // Ctrl-C
+                b'\x03' => {
+                    Stdout.write_str("^C\r\n").unwrap();
+                    self.len = 0;
+                    self.cursor = 0;
+                    break;
+                }
+
+                // normal character
+                c if c.is_ascii_graphic() || c == b' ' => {
+                    self.insert(c);
                 }
 
                 _ => {}
@@ -212,6 +222,10 @@ impl<'a> LineEditor<'a> {
     }
 
     fn insert(&mut self, c: u8) {
+        if self.cursor >= Self::LINE_MAX {
+            return;
+        }
+
         // shift buf[cursor..len] right by 1
         for i in (self.cursor..self.len).rev() {
             self.buf[i + 1] = self.buf[i];

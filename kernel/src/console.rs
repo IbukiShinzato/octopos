@@ -186,9 +186,11 @@ impl Console {
                 }
             }
 
-            // induce a panic
+            // kill the process if any
             c if c == ctrl(b'C') => {
-                panic!("ctrl-c induced panic");
+                if let Some(pid) = console.foreground_pid {
+                    proc::kill(pid);
+                }
             }
 
             // normal character

@@ -398,8 +398,12 @@ fn run_cmd(cmd: CommandType, arena: &mut Arena) -> ! {
 }
 
 fn exec_cmd(cmd: &str, args: &[&str]) -> ! {
+    if cmd.len() >= MAXPATH {
+        exit_with_msg("sh: command too long");
+    }
+
     // Build path: "/cmd"
-    let mut path_buf = [0u8; 64];
+    let mut path_buf = [0u8; MAXPATH];
     path_buf[0] = b'/';
     path_buf[1..1 + cmd.len()].copy_from_slice(cmd.as_bytes());
     let path_str = unsafe { core::str::from_utf8_unchecked(&path_buf[..1 + cmd.len()]) };
@@ -451,7 +455,9 @@ fn main(_args: Args) {
                     }
                     exit_with_msg("sh: parse failed");
                 } else {
-                    let _ = wait(&mut 0);
+                    ioctl(Fd::STDIN, Ioctl::CONSOLE_SET_FG_PID, pid).expect("sh: ioctl failed");
+                    wait(&mut 0).expect("sh: wait failed");
+                    ioctl(Fd::STDIN, Ioctl::CONSOLE_SET_FG_PID, 0).expect("sh: ioctl failed");
                 }
             }
             None => continue,
