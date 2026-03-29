@@ -90,7 +90,6 @@ fn test_cow_lazy() {
         0,
         "FAIL: parent page should be zero-initialized"
     );
-
 }
 
 #[unsafe(no_mangle)]
