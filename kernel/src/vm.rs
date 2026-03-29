@@ -350,7 +350,9 @@ impl PageTable {
         va: VA,
         alloc: bool,
     ) -> Result<*mut PageTableEntry, VmError> {
-        assert!(va < MAXVA, "walk");
+        if va >= MAXVA {
+            err!(VmError::InvalidAddress);
+        }
 
         unsafe {
             for level in (1..=2).rev() {

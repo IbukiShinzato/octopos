@@ -647,7 +647,7 @@ unsafe impl Sync for ProcTable {}
 
 /// Sets up first user process.
 pub fn user_init() {
-    let (proc, mut inner) = log!(PROC_TABLE.alloc()).unwrap();
+    let (proc, mut inner) = PROC_TABLE.alloc().expect("user_init: failed to allocate process");
     INIT_PROC.initialize(|| Ok::<_, ()>(proc));
 
     // # Safety: during initialization, we are the only ones with access to this proc

@@ -66,7 +66,7 @@ pub fn sys_close(args: &SyscallArgs) -> Result<usize, SysError> {
 pub fn sys_fstat(args: &SyscallArgs) -> Result<usize, SysError> {
     let addr = args.get_addr(1);
     let (_, file) = try_log!(args.get_file(0));
-    try_log!(log!(file.stat(addr)));
+    try_log!(file.stat(addr));
     Ok(0)
 }
 
