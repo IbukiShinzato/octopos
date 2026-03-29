@@ -129,21 +129,35 @@ bench = false
 
 [[bin]]
 name = "testrunner"
-path = "bin/testrunner.rs"
+path = "testbin/testrunner.rs"
 test = false
 doctest = false
 bench = false
 
 [[bin]]
 name = "sbrk"
-path = "bin/sbrk.rs"
+path = "testbin/sbrk.rs"
 test = false
 doctest = false
 bench = false
 
 [[bin]]
 name = "cow"
-path = "bin/cow.rs"
+path = "testbin/cow.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
+name = "fs"
+path = "testbin/fs.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
+name = "pipe"
+path = "testbin/pipe.rs"
 test = false
 doctest = false
 bench = false
