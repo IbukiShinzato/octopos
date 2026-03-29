@@ -647,7 +647,9 @@ unsafe impl Sync for ProcTable {}
 
 /// Sets up first user process.
 pub fn user_init() {
-    let (proc, mut inner) = PROC_TABLE.alloc().expect("user_init: failed to allocate process");
+    let (proc, mut inner) = PROC_TABLE
+        .alloc()
+        .expect("user_init: failed to allocate process");
     INIT_PROC.initialize(|| Ok::<_, ()>(proc));
 
     // # Safety: during initialization, we are the only ones with access to this proc
@@ -1035,7 +1037,7 @@ pub fn wakeup(channel: Channel) {
 pub fn kill(pid: Pid) -> bool {
     for proc in PROC_TABLE.iter() {
         let mut inner = proc.inner.lock();
-        if inner.pid == pid {
+        if inner.state != ProcState::Unused && inner.pid == pid {
             inner.killed = true;
 
             if inner.state == ProcState::Sleeping {
