@@ -2,3 +2,8 @@
 members = ["kernel", "user" ]
 exclude = ["mkfs"]
 resolver = "3"
+
+[profile.release]
+lto = true          # link time optimization, eleminates dead code
+strip = true        # strips symbols from the binary
+codegen-units = 1   # compile as one unit
