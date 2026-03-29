@@ -77,12 +77,22 @@ impl Console {
 
         let mut buf = [0u8; 32];
 
+        let raw = {
+            let console = CONSOLE.lock();
+            console.raw
+        };
+
         while n < len {
             let chunk = 32.min(len - n);
             match proc::copy_from_user(src, &mut buf[..chunk]) {
                 Ok(_) => {
-                    // TODO: possibly use `write_sync` to avoid flickers, have to consider panics
-                    uart::write(&buf[..chunk]);
+                    // in raw mode, we are using write_sync to avoid sleeping between characters.
+                    // this gets rid of flickers but could cause longer blocking against the kernel
+                    if raw {
+                        uart::write_sync(&buf[..chunk]);
+                    } else {
+                        uart::write(&buf[..chunk]);
+                    }
                     n += chunk;
                     src += chunk;
                 }
