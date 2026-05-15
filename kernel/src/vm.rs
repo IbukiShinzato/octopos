@@ -776,9 +776,9 @@ impl Uvm {
 
             // case 3: COW page, copy and remap as writable
             let old_pa = pte.as_pa();
-            let mem = match log!(Box::<Page>::try_new_zeroed()) {
-                Ok(mem) => unsafe { mem.assume_init() },
-                Err(err) => return Err(err.into()),
+            let mem = {
+                let mem = try_log!(Box::<Page>::try_new_zeroed());
+                unsafe { mem.assume_init() }
             };
             let new_pa = PA::from(Box::into_raw(mem) as usize);
 
@@ -803,9 +803,9 @@ impl Uvm {
         }
 
         // case 4: pte absent, lazily allocate a new page
-        let mem = match log!(Box::<Page>::try_new_zeroed()) {
-            Ok(mem) => unsafe { mem.assume_init() },
-            Err(err) => return Err(err.into()),
+        let mem = {
+            let mem = try_log!(Box::<Page>::try_new_zeroed());
+            unsafe { mem.assume_init() }
         };
         let mem_ptr = Box::into_raw(mem);
         let pa = PA::from(mem_ptr as usize);
