@@ -134,7 +134,6 @@ fn main() {
         .read(true)
         .write(true)
         .create(true)
-        .truncate(true)
         .open(&args[1])
         .expect("failed to open file");
 
