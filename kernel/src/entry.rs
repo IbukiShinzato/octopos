@@ -11,7 +11,7 @@ use crate::start::start;
 pub unsafe fn _entry() -> ! {
     unsafe {
         // In RISC-V, the stack grows downwards. Stack pointer of each CPU points
-        // to the top of the stack. Each stack is 4096 bits.
+        // to the top of the stack. Each stack is 4096 bytes.
         asm!(
             "la sp, STACK0",    // load address of STACK0 to stack pointer
             "li a0, 4096",      // load immediate value to a0
