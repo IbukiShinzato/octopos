@@ -83,3 +83,8 @@ pub fn sys_poweroff(args: &SyscallArgs) -> ! {
 
     unreachable!("poweroff failed");
 }
+
+pub fn sys_my_getpid(args: &SyscallArgs) -> Result<usize, SysError> {
+    let pid = args.proc().inner.lock().pid;
+    Ok(*pid)
+}

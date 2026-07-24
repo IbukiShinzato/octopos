@@ -151,6 +151,10 @@ pub mod raw {
     pub fn ioctl(fd: usize, cmd: usize, arg: usize) -> isize {
         syscall3(Syscall::Ioctl, fd, cmd, arg)
     }
+
+    pub fn my_getpid() -> isize {
+        syscall0(Syscall::Mygetpid)
+    }
 }
 
 use kernel::abi::{MAXPATH, Stat, SysError};
@@ -352,4 +356,8 @@ pub fn poweroff(code: u32) -> ! {
 
 pub fn ioctl(fd: Fd, cmd: usize, arg: usize) -> Result<usize, SysError> {
     check(raw::ioctl(fd.as_raw(), cmd, arg))
+}
+
+pub fn my_getpid() -> usize {
+    raw::my_getpid() as usize
 }

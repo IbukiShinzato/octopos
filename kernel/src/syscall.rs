@@ -241,6 +241,7 @@ pub enum Syscall {
     Close = 21,
     Poweroff = 22,
     Ioctl = 23,
+    Mygetpid = 24,
 }
 
 impl TryFrom<usize> for Syscall {
@@ -271,6 +272,7 @@ impl TryFrom<usize> for Syscall {
             21 => Ok(Syscall::Close),
             22 => Ok(Syscall::Poweroff),
             23 => Ok(Syscall::Ioctl),
+            24 => Ok(Syscall::Mygetpid),
             _ => Err(SysError::NotImplemented),
         }
     }
@@ -310,6 +312,7 @@ pub unsafe fn syscall(trapframe: &mut TrapFrame) {
             Syscall::Close => sys_close(&args),
             Syscall::Poweroff => sys_poweroff(&args),
             Syscall::Ioctl => sys_ioctl(&args),
+            Syscall::Mygetpid => sys_my_getpid(&args),
         },
         Err(e) => Err(e),
     };
