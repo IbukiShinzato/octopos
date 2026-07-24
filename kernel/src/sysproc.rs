@@ -88,3 +88,13 @@ pub fn sys_my_getpid(args: &SyscallArgs) -> Result<usize, SysError> {
     let pid = args.proc().inner.lock().pid;
     Ok(*pid)
 }
+
+pub fn sys_check_proc(args: &SyscallArgs) -> Result<usize, SysError> {
+    let pid = args.get_raw(0);
+
+    if proc::pid_exists(pid) {
+        Ok(0)
+    } else {
+        Ok((-1_isize) as usize)
+    }
+}

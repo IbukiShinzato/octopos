@@ -155,6 +155,10 @@ pub mod raw {
     pub fn my_getpid() -> isize {
         syscall0(Syscall::Mygetpid)
     }
+
+    pub fn check_proc(pid: usize) -> isize {
+        syscall1(Syscall::Checkproc, pid)
+    }
 }
 
 use kernel::abi::{MAXPATH, Stat, SysError};
@@ -360,4 +364,8 @@ pub fn ioctl(fd: Fd, cmd: usize, arg: usize) -> Result<usize, SysError> {
 
 pub fn my_getpid() -> usize {
     raw::my_getpid() as usize
+}
+
+pub fn check_proc(pid: usize) -> isize {
+    raw::check_proc(pid)
 }

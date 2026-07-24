@@ -1,0 +1,19 @@
+#![no_std]
+#![no_main]
+
+use user::*;
+
+#[unsafe(no_mangle)]
+fn main(args: Args) {
+    if args.len() < 2 {
+        exit_with_msg("usage: check_proc pids...");
+    }
+
+    for pid in args.args_as_str() {
+        let pid = pid.parse::<usize>().unwrap_or_else(|_| {
+            exit_with_msg("check_proc: invalid pid");
+        });
+
+        println!("pid {}: {}", pid, check_proc(pid));
+    }
+}

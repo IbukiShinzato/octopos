@@ -1052,6 +1052,13 @@ pub fn kill(pid: Pid) -> bool {
     false
 }
 
+pub fn pid_exists(pid: usize) -> bool {
+    PROC_TABLE.iter().any(|proc| {
+        let inner = proc.inner.lock();
+        *inner.pid == pid && inner.state != ProcState::Unused
+    })
+}
+
 /// Copies from kernel to user space.
 pub fn copy_to_user(src: &[u8], dst: VA) -> Result<(), KernelError> {
     log!(
