@@ -17,6 +17,7 @@ pub(crate) mod kalloc;
 pub(crate) mod kernelvec;
 pub(crate) mod log;
 pub(crate) mod memlayout;
+pub(crate) mod message;
 pub(crate) mod param;
 pub(crate) mod pipe;
 pub(crate) mod plic;
@@ -37,7 +38,6 @@ pub(crate) mod virtio_disk;
 pub(crate) mod vm;
 
 pub mod abi;
-pub mod message;
 
 use core::sync::atomic::{AtomicBool, Ordering};
 

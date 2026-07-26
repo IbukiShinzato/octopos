@@ -1,5 +1,8 @@
+use alloc::vec;
+
 use crate::memlayout::QEMU_POWER;
-use crate::proc::{self, Channel, Pid, current_proc};
+use crate::message::{BUFSIZE, get_msg, set_msg};
+use crate::proc::{self, Channel, Pid, copy_from_user, copy_to_user, current_proc};
 use crate::syscall::{SysError, SyscallArgs};
 use crate::trap::TICKS;
 
@@ -97,4 +100,38 @@ pub fn sys_check_proc(args: &SyscallArgs) -> Result<usize, SysError> {
     } else {
         Ok((-1_isize) as usize)
     }
+}
+
+pub fn sys_set_msg(args: &SyscallArgs) -> Result<usize, SysError> {
+    let src = args.get_addr(0);
+    let len = args.get_raw(1);
+
+    if len > BUFSIZE {
+        return Err(SysError::InvalidArgument);
+    }
+
+    let mut dst = vec![0u8; len];
+
+    match copy_from_user(src, &mut dst) {
+        Ok(_) => Ok(set_msg(&dst, len)?),
+        Err(_) => err!(SysError::BadAddress),
+    }
+}
+
+pub fn sys_get_msg(args: &SyscallArgs) -> Result<usize, SysError> {
+    let dst = args.get_addr(0);
+    let len = args.get_raw(1);
+
+    if len > BUFSIZE {
+        return Err(SysError::InvalidArgument);
+    }
+
+    let mut src = vec![0u8; len];
+    let n = get_msg(&mut src, len)?;
+
+    if copy_to_user(&src[..n], dst).is_err() {
+        err!(SysError::BadAddress);
+    }
+
+    Ok(n)
 }

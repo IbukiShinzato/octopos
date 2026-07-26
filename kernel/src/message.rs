@@ -2,9 +2,9 @@ use core::fmt::Display;
 
 use crate::spinlock::SpinLock;
 
-pub static MESSAGE_BUFFER: SpinLock<MessageBuffer> = SpinLock::new(MessageBuffer::new(), "message");
+static MESSAGE_BUFFER: SpinLock<MessageBuffer> = SpinLock::new(MessageBuffer::new(), "message");
 
-const BUFSIZE: usize = 4096;
+pub(crate) const BUFSIZE: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageError {
@@ -19,7 +19,7 @@ impl Display for MessageError {
     }
 }
 
-pub struct MessageBuffer {
+struct MessageBuffer {
     data: [u8; BUFSIZE],
     valid_len: usize,
 }
@@ -32,17 +32,32 @@ impl MessageBuffer {
         }
     }
 
-    fn set_msg(&mut self, buf: &[u8], len: usize) -> Result<(), MessageError> {
+    fn set_msg(&mut self, buf: &[u8], len: usize) -> Result<usize, MessageError> {
         if len > BUFSIZE || len > buf.len() {
             err!(MessageError::OutOfRange);
         }
 
-        for (i, &c) in buf.iter().take(len).enumerate() {
-            self.data[i] = c;
-        }
-
+        self.data[..len].copy_from_slice(&buf[..len]);
         self.valid_len = len;
 
-        Ok(())
+        Ok(len)
     }
+
+    fn get_msg(&self, buf: &mut [u8], len: usize) -> Result<usize, MessageError> {
+        if len > self.valid_len || len > buf.len() {
+            err!(MessageError::OutOfRange);
+        }
+
+        buf[..len].copy_from_slice(&self.data[..len]);
+
+        Ok(len)
+    }
+}
+
+pub fn set_msg(buf: &[u8], len: usize) -> Result<usize, MessageError> {
+    MESSAGE_BUFFER.lock().set_msg(buf, len)
+}
+
+pub fn get_msg(buf: &mut [u8], len: usize) -> Result<usize, MessageError> {
+    MESSAGE_BUFFER.lock().get_msg(buf, len)
 }
