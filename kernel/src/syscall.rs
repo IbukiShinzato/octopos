@@ -4,6 +4,7 @@ use alloc::string::String;
 
 use crate::file::File;
 use crate::fs::FsError;
+use crate::message::MessageError;
 use crate::param::NOFILE;
 use crate::proc::{Proc, TrapFrame, current_proc, current_proc_and_data_mut};
 use crate::sysfile::*;
@@ -124,6 +125,14 @@ impl From<FsError> for SysError {
             FsError::Resolve => SysError::NoEntry,
             FsError::Type => SysError::InvalidArgument,
             FsError::Copy => SysError::BadAddress,
+        }
+    }
+}
+
+impl From<MessageError> for SysError {
+    fn from(e: MessageError) -> Self {
+        match e {
+            MessageError::OutOfRange => SysError::InvalidArgument,
         }
     }
 }
