@@ -142,6 +142,20 @@ doctest = false
 bench = false
 
 [[bin]]
+name = "set_msg"
+path = "bin/set_msg.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
+name = "get_msg"
+path = "bin/get_msg.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
 name = "testrunner"
 path = "testbin/testrunner.rs"
 test = false
