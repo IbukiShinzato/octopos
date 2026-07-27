@@ -70,6 +70,14 @@ fn test_invalid_get_length() {
     assert!(get_msg(&mut buf, 5).is_err());
 }
 
+fn test_invalid_get_length_exceeds_buffer() {
+    set_msg(b"hello", 5).expect("set_msg failed");
+
+    let mut buf = [0u8; 4];
+
+    assert_eq!(get_msg(&mut buf, 5), Err(SysError::InvalidArgument));
+}
+
 fn test_empty_message() {
     let mut buf = [0u8; 1];
 
@@ -87,5 +95,6 @@ fn main(_args: Args) {
     test_overwrite_message();
     test_invalid_set_length();
     test_invalid_get_length();
+    test_invalid_get_length_exceeds_buffer();
     test_empty_message();
 }

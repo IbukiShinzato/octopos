@@ -387,5 +387,9 @@ pub fn set_msg(buf: &[u8], len: usize) -> Result<usize, SysError> {
 }
 
 pub fn get_msg(buf: &mut [u8], len: usize) -> Result<usize, SysError> {
+    if len > buf.len() {
+        return Err(SysError::InvalidArgument);
+    }
+
     check(raw::get_msg(buf.as_mut_ptr(), len))
 }
