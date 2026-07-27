@@ -127,6 +127,27 @@ fn test_wait_only_own_children() {
     );
 }
 
+fn test_get_pagetable_address() {
+    let parent_pgdir_pa = get_pgdir().expect("get_pgdir");
+
+    assert_eq!(parent_pgdir_pa % 4096, 0);
+
+    if fork().expect("fork") == 0 {
+        let child_pgdir_pa = get_pgdir().expect("get_pgdir");
+
+        assert_ne!(child_pgdir_pa, parent_pgdir_pa);
+        assert_eq!(child_pgdir_pa, get_pgdir().expect("get_pgdir"));
+
+        exit(0);
+    }
+
+    let mut code = 0;
+    wait(&mut code).expect("wait");
+
+    assert_eq!(code, 0);
+    assert_eq!(parent_pgdir_pa, get_pgdir().expect("get_pgdir"));
+}
+
 #[unsafe(no_mangle)]
 fn main(_args: Args) {
     test_getpid();
@@ -135,4 +156,5 @@ fn main(_args: Args) {
     test_kill();
     test_kill_invalid_pid();
     test_wait_only_own_children();
+    test_get_pagetable_address();
 }
