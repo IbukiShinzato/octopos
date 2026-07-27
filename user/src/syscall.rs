@@ -159,6 +159,14 @@ pub mod raw {
     pub fn check_proc(pid: usize) -> isize {
         syscall1(Syscall::Checkproc, pid)
     }
+
+    pub fn set_msg(buf: *const u8, len: usize) -> isize {
+        syscall2(Syscall::Setmsg, buf as usize, len)
+    }
+
+    pub fn get_msg(buf: *mut u8, len: usize) -> isize {
+        syscall2(Syscall::Getmsg, buf as usize, len)
+    }
 }
 
 use kernel::abi::{MAXPATH, Stat, SysError};
@@ -368,4 +376,20 @@ pub fn my_getpid() -> usize {
 
 pub fn check_proc(pid: usize) -> isize {
     raw::check_proc(pid)
+}
+
+pub fn set_msg(buf: &[u8], len: usize) -> Result<usize, SysError> {
+    if len > buf.len() {
+        return Err(SysError::InvalidArgument);
+    }
+
+    check(raw::set_msg(buf.as_ptr(), len))
+}
+
+pub fn get_msg(buf: &mut [u8], len: usize) -> Result<usize, SysError> {
+    if len > buf.len() {
+        return Err(SysError::InvalidArgument);
+    }
+
+    check(raw::get_msg(buf.as_mut_ptr(), len))
 }

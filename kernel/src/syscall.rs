@@ -4,6 +4,7 @@ use alloc::string::String;
 
 use crate::file::File;
 use crate::fs::FsError;
+use crate::message::MessageError;
 use crate::param::NOFILE;
 use crate::proc::{Proc, TrapFrame, current_proc, current_proc_and_data_mut};
 use crate::sysfile::*;
@@ -128,6 +129,14 @@ impl From<FsError> for SysError {
     }
 }
 
+impl From<MessageError> for SysError {
+    fn from(e: MessageError) -> Self {
+        match e {
+            MessageError::OutOfRange => SysError::InvalidArgument,
+        }
+    }
+}
+
 /// Wrapper for extracting typed syscall arguments from trapframe.
 pub struct SyscallArgs<'a> {
     trapframe: &'a TrapFrame,
@@ -243,6 +252,8 @@ pub enum Syscall {
     Ioctl = 23,
     Mygetpid = 24,
     Checkproc = 25,
+    Setmsg = 26,
+    Getmsg = 27,
 }
 
 impl TryFrom<usize> for Syscall {
@@ -275,6 +286,8 @@ impl TryFrom<usize> for Syscall {
             23 => Ok(Syscall::Ioctl),
             24 => Ok(Syscall::Mygetpid),
             25 => Ok(Syscall::Checkproc),
+            26 => Ok(Syscall::Setmsg),
+            27 => Ok(Syscall::Getmsg),
             _ => Err(SysError::NotImplemented),
         }
     }
@@ -316,6 +329,8 @@ pub unsafe fn syscall(trapframe: &mut TrapFrame) {
             Syscall::Ioctl => sys_ioctl(&args),
             Syscall::Mygetpid => sys_my_getpid(&args),
             Syscall::Checkproc => sys_check_proc(&args),
+            Syscall::Setmsg => sys_set_msg(&args),
+            Syscall::Getmsg => sys_get_msg(&args),
         },
         Err(e) => Err(e),
     };
