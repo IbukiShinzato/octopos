@@ -2,7 +2,7 @@ use alloc::vec;
 
 use crate::memlayout::QEMU_POWER;
 use crate::message::{BUFSIZE, get_msg, set_msg};
-use crate::proc::{self, Channel, Pid, copy_from_user, copy_to_user, current_proc};
+use crate::proc::{self, Channel, Pid, copy_from_user, copy_to_user, current_proc, get_pgdir};
 use crate::syscall::{SysError, SyscallArgs};
 use crate::trap::TICKS;
 
@@ -134,4 +134,8 @@ pub fn sys_get_msg(args: &SyscallArgs) -> Result<usize, SysError> {
     }
 
     Ok(n)
+}
+
+pub fn sys_get_pgdir(args: &SyscallArgs) -> Result<usize, SysError> {
+    Ok(get_pgdir(args.proc()).as_usize())
 }

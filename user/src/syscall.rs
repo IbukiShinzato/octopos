@@ -167,6 +167,10 @@ pub mod raw {
     pub fn get_msg(buf: *mut u8, len: usize) -> isize {
         syscall2(Syscall::Getmsg, buf as usize, len)
     }
+
+    pub fn get_pgdir() -> isize {
+        syscall0(Syscall::Getpgdir)
+    }
 }
 
 use kernel::abi::{MAXPATH, Stat, SysError};
@@ -392,4 +396,8 @@ pub fn get_msg(buf: &mut [u8], len: usize) -> Result<usize, SysError> {
     }
 
     check(raw::get_msg(buf.as_mut_ptr(), len))
+}
+
+pub fn get_pgdir() -> Result<usize, SysError> {
+    check(raw::get_pgdir())
 }

@@ -254,6 +254,7 @@ pub enum Syscall {
     Checkproc = 25,
     Setmsg = 26,
     Getmsg = 27,
+    Getpgdir = 28,
 }
 
 impl TryFrom<usize> for Syscall {
@@ -288,6 +289,7 @@ impl TryFrom<usize> for Syscall {
             25 => Ok(Syscall::Checkproc),
             26 => Ok(Syscall::Setmsg),
             27 => Ok(Syscall::Getmsg),
+            28 => Ok(Syscall::Getpgdir),
             _ => Err(SysError::NotImplemented),
         }
     }
@@ -331,6 +333,7 @@ pub unsafe fn syscall(trapframe: &mut TrapFrame) {
             Syscall::Checkproc => sys_check_proc(&args),
             Syscall::Setmsg => sys_set_msg(&args),
             Syscall::Getmsg => sys_get_msg(&args),
+            Syscall::Getpgdir => sys_get_pgdir(&args),
         },
         Err(e) => Err(e),
     };

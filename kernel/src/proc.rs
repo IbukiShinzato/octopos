@@ -1059,6 +1059,10 @@ pub fn pid_exists(pid: usize) -> bool {
     })
 }
 
+pub fn get_pgdir(proc: &Proc) -> PA {
+    proc.data().pagetable().0.as_pa()
+}
+
 /// Copies from kernel to user space.
 pub fn copy_to_user(src: &[u8], dst: VA) -> Result<(), KernelError> {
     log!(

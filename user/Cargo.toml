@@ -156,6 +156,13 @@ doctest = false
 bench = false
 
 [[bin]]
+name = "get_pgdir"
+path = "bin/get_pgdir.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
 name = "testrunner"
 path = "testbin/testrunner.rs"
 test = false
