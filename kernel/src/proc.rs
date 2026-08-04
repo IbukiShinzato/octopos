@@ -13,13 +13,13 @@ use crate::fs::{self, Inode, Path};
 use crate::log::Operation;
 use crate::memlayout::{TRAMPOLINE, TRAPFRAME, kstack};
 use crate::param::{NCPU, NKSTACK_PAGES, NOFILE, NPROC, ROOTDEV};
-use crate::riscv::{PGSIZE, PTE_R, PTE_W, PTE_X, interrupts, registers::tp};
+use crate::riscv::{PGSIZE, PTE_R, PTE_W, PTE_X, interrupts, pg_round_up, registers::tp};
 use crate::spinlock::{SpinLock, SpinLockGuard};
 use crate::swtch::swtch;
 use crate::sync::OnceLock;
 use crate::trampoline::trampoline;
 use crate::trap::usertrapret;
-use crate::vm::{Kvm, PA, PageTable, Uvm, VA};
+use crate::vm::{Kvm, PA, PageTable, Uvm, VA, VmError, valid_page_count};
 
 pub static CPU_TABLE: CpuTable = CpuTable::new();
 pub static PROC_TABLE: ProcTable = ProcTable::new();
@@ -1061,6 +1061,14 @@ pub fn pid_exists(pid: usize) -> bool {
 
 pub fn get_pgdir(proc: &Proc) -> PA {
     proc.data().pagetable().0.as_pa()
+}
+
+pub fn get_validpg_num(proc: &Proc) -> Result<usize, VmError> {
+    let data = proc.data();
+    let size = pg_round_up(data.size);
+    let pagetable = &data.pagetable().0;
+
+    valid_page_count(pagetable, size)
 }
 
 /// Copies from kernel to user space.
