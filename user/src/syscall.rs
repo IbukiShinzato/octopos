@@ -171,6 +171,10 @@ pub mod raw {
     pub fn get_pgdir() -> isize {
         syscall0(Syscall::Getpgdir)
     }
+
+    pub fn get_validpg_num() -> isize {
+        syscall0(Syscall::Getvalidpgnum)
+    }
 }
 
 use kernel::abi::{MAXPATH, Stat, SysError};
@@ -400,4 +404,8 @@ pub fn get_msg(buf: &mut [u8], len: usize) -> Result<usize, SysError> {
 
 pub fn get_pgdir() -> Result<usize, SysError> {
     check(raw::get_pgdir())
+}
+
+pub fn get_validpg_num() -> Result<usize, SysError> {
+    check(raw::get_validpg_num())
 }

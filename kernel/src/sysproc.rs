@@ -2,9 +2,12 @@ use alloc::vec;
 
 use crate::memlayout::QEMU_POWER;
 use crate::message::{BUFSIZE, get_msg, set_msg};
-use crate::proc::{self, Channel, Pid, copy_from_user, copy_to_user, current_proc, get_pgdir};
+use crate::proc::{
+    self, Channel, Pid, copy_from_user, copy_to_user, current_proc, get_pgdir, get_validpg_num,
+};
 use crate::syscall::{SysError, SyscallArgs};
 use crate::trap::TICKS;
+use crate::vm::VmError;
 
 pub fn sys_exit(args: &SyscallArgs) -> ! {
     let n = args.get_int(0);
@@ -138,4 +141,16 @@ pub fn sys_get_msg(args: &SyscallArgs) -> Result<usize, SysError> {
 
 pub fn sys_get_pgdir(args: &SyscallArgs) -> Result<usize, SysError> {
     Ok(get_pgdir(args.proc()).as_usize())
+}
+
+pub fn sys_get_validpg_num(args: &SyscallArgs) -> Result<usize, SysError> {
+    match get_validpg_num(args.proc()) {
+        Ok(count) => Ok(count),
+        Err(VmError::Alloc) => err!(SysError::OutOfMemory),
+        Err(VmError::InvalidAddress | VmError::InvalidPage) => {
+            err!(SysError::BadAddress)
+        }
+        Err(VmError::InvalidPte) => err!(SysError::IoError),
+        Err(VmError::Fs) => err!(SysError::IoError),
+    }
 }

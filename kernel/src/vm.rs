@@ -900,6 +900,31 @@ impl core::ops::DerefMut for Uvm {
     }
 }
 
+pub fn valid_page_count(pagetable: &PageTable, size: usize) -> Result<usize, VmError> {
+    let mut count = 0;
+    for va in (0..size).step_by(PGSIZE) {
+        let va = VA::from(va);
+        match pagetable.walk(va) {
+            Ok(pte) => {
+                if pte.is_v() && !pte.is_leaf() {
+                    err!(VmError::InvalidPte);
+                }
+
+                if pte.is_v() && pte.is_leaf() && pte.is_u() {
+                    count += 1;
+                }
+            }
+            Err(VmError::InvalidPage) => continue,
+            Err(VmError::InvalidAddress) => err!(VmError::InvalidAddress),
+            Err(e) => {
+                err!(e);
+            }
+        }
+    }
+
+    Ok(count)
+}
+
 /// Initializes the kernel page table.
 ///
 /// Since KVM is static, the non-const initialization is done here.
