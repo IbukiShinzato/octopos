@@ -163,6 +163,13 @@ doctest = false
 bench = false
 
 [[bin]]
+name = "pwd"
+path = "bin/pwd.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
 name = "testrunner"
 path = "testbin/testrunner.rs"
 test = false
