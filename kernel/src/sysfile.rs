@@ -431,3 +431,10 @@ pub fn sys_ioctl(args: &SyscallArgs) -> Result<usize, SysError> {
     let (_, file) = try_log!(args.get_file(0));
     log!(file.ioctl(ioctl_cmd, ioctl_arg))
 }
+
+pub fn sys_pwd(args: &SyscallArgs) -> Result<usize, SysError> {
+    let inode = &args.proc().data().cwd;
+    println!("inode: {:#?}", inode);
+
+    Ok(0)
+}

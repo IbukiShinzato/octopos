@@ -5,5 +5,11 @@ use user::*;
 
 #[unsafe(no_mangle)]
 fn main(_args: Args) {
-    println!("hello pwd");
+    match pwd() {
+        Ok(pathname) => println!("{pathname}"),
+        Err(e) => {
+            eprintln!("{e}");
+            exit(1);
+        }
+    }
 }
