@@ -398,7 +398,7 @@ impl Inode {
     pub fn dup(&self) -> Self {
         let mut meta = INODE_TABLE.meta.lock();
         meta[self.id].r#ref += 1;
-        self.clone()
+        *self
     }
 
     /// Locks the given `inode`. The lifetime of the lock is static since it comes from the table.
@@ -1076,6 +1076,9 @@ pub fn make_path(mut inode: Inode) -> Result<String, FsError> {
     }
 
     fullpath.reverse();
+    if fullpath.is_empty() {
+        fullpath.push(String::from("/"));
+    }
 
     Ok(fullpath.join(""))
 }

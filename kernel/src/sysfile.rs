@@ -11,7 +11,7 @@ use crate::fs::{Directory, Inode, InodeType, Path, make_path};
 use crate::log::Operation;
 use crate::param::{MAXARG, MAXPATH, NDEV};
 use crate::pipe::Pipe;
-use crate::proc::current_proc_and_data_mut;
+use crate::proc::{copy_to_user, current_proc_and_data_mut};
 use crate::riscv::PGSIZE;
 use crate::syscall::{SysError, SyscallArgs};
 use crate::vm::VA;
@@ -433,8 +433,16 @@ pub fn sys_ioctl(args: &SyscallArgs) -> Result<usize, SysError> {
 }
 
 pub fn sys_pwd(args: &SyscallArgs) -> Result<usize, SysError> {
-    let mut inode = args.proc().data().cwd;
+    let inode = args.proc().data().cwd;
     let path = try_log!(make_path(inode));
 
-    Ok(0)
+    let dst = args.get_addr(0);
+    if copy_to_user(path.as_bytes(), dst).is_err() {
+        err!(SysError::BadAddress);
+    }
+
+    match copy_to_user(path.as_bytes(), dst) {
+        Ok(_) => Ok(path.len()),
+        Err(_) => err!(SysError::BadAddress),
+    }
 }

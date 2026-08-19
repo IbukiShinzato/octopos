@@ -172,8 +172,8 @@ pub mod raw {
         syscall0(Syscall::Getpgdir)
     }
 
-    pub fn pwd() -> isize {
-        syscall0(Syscall::Pwd)
+    pub fn pwd(buf: *mut u8) -> isize {
+        syscall1(Syscall::Pwd, buf as usize)
     }
 }
 
@@ -406,6 +406,6 @@ pub fn get_pgdir() -> Result<usize, SysError> {
     check(raw::get_pgdir())
 }
 
-pub fn pwd() -> Result<usize, SysError> {
-    check(raw::pwd())
+pub fn pwd(buf: &mut [u8]) -> Result<usize, SysError> {
+    check(raw::pwd(buf.as_mut_ptr()))
 }

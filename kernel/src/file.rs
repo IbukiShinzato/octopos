@@ -174,7 +174,7 @@ impl File {
             FileType::Pipe { pipe } => pipe.read(addr, n),
 
             FileType::Inode { inode } => {
-                let inode = inode.clone();
+                let inode = *inode;
                 let mut inode_inner = inode.lock();
 
                 let dst = unsafe { slice::from_raw_parts_mut(addr.as_mut_ptr(), n) };
@@ -214,7 +214,7 @@ impl File {
             FileType::Pipe { pipe } => pipe.write(addr, n),
 
             FileType::Inode { inode } => {
-                let inode = inode.clone();
+                let inode = *inode;
 
                 // write a few block at a time to avoid exceeding the maximum log transaction size,
                 // including inode, indirect block, allocation blocks, and 2 block of slop for
