@@ -280,7 +280,7 @@ impl InodeMeta {
 /// In-memory inode structure
 /// `id` is the index to the actual data in the inode table.
 /// Also holds device and inode numbers for quick lookup.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Copy, Debug, Clone, PartialEq, Eq, Default)]
 pub struct Inode {
     /// Inode table index
     pub id: usize,
@@ -830,7 +830,7 @@ impl Directory {
         unsafe { slice::from_raw_parts(self as *const Self as *const u8, Self::SIZE) }
     }
 
-    fn from_inode(
+    pub fn from_inode(
         inode: &Inode,
         inner: &mut SleepLockGuard<'_, InodeInner>,
         offset: u32,
