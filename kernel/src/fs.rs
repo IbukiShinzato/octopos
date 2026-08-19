@@ -2,6 +2,9 @@ use core::fmt::Display;
 use core::ptr;
 use core::slice;
 
+use alloc::string::String;
+use alloc::vec::Vec;
+
 use crate::buf::{BCACHE, Buf};
 use crate::log::{self, Operation};
 use crate::param::{NINODE, ROOTDEV};
@@ -1035,4 +1038,44 @@ impl<'a> Path<'a> {
     pub fn resolve_parent(&self) -> Result<(Inode, &'a str), FsError> {
         log!(self.resolve_inner(true))
     }
+}
+
+pub fn make_path(mut inode: Inode) -> Result<String, FsError> {
+    let mut current_inum = inode.inum;
+    let mut current_lock = inode.lock();
+    let mut fullpath = Vec::new();
+
+    while let Ok(Some((_offset, parent))) = Directory::lookup(&inode, &mut current_lock, "..") {
+        drop(current_lock);
+
+        let mut parent_inner = parent.lock();
+
+        if inode.inum == 1 {
+            break;
+        }
+
+        for offset in (0..parent_inner.size).step_by(Directory::SIZE) {
+            let dir = try_log!(Directory::from_inode(&parent, &mut parent_inner, offset));
+
+            if dir.inum as u32 == current_inum {
+                let end = dir.name.iter().position(|&c| c == 0).unwrap_or(DIRSIZE);
+                if let Ok(name) = String::from_utf8(dir.name[..end].to_vec()) {
+                    fullpath.push(name);
+                    fullpath.push(String::from("/"));
+                } else {
+                    return Err(FsError::OutOfBlock);
+                }
+            }
+        }
+
+        drop(parent_inner);
+
+        inode = parent;
+        current_inum = inode.inum;
+        current_lock = inode.lock();
+    }
+
+    fullpath.reverse();
+
+    Ok(fullpath.join(""))
 }

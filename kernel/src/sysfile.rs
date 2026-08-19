@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use crate::abi::OpenFlag;
 use crate::exec::exec;
 use crate::file::{FILE_TABLE, File, FileType};
-use crate::fs::{DIRSIZE, Directory, Inode, InodeType, Path};
+use crate::fs::{Directory, Inode, InodeType, Path, make_path};
 use crate::log::Operation;
 use crate::param::{MAXARG, MAXPATH, NDEV};
 use crate::pipe::Pipe;
@@ -434,44 +434,7 @@ pub fn sys_ioctl(args: &SyscallArgs) -> Result<usize, SysError> {
 
 pub fn sys_pwd(args: &SyscallArgs) -> Result<usize, SysError> {
     let mut inode = args.proc().data().cwd;
-    let mut current_inum = inode.inum;
-    let mut current_lock = inode.lock();
-    let mut fullpath = Vec::new();
-
-    while let Ok(Some((_offset, parent))) = Directory::lookup(&inode, &mut current_lock, "..") {
-        drop(current_lock);
-
-        let mut parent_inner = parent.lock();
-
-        if inode.inum == 1 {
-            break;
-        }
-
-        for offset in (0..parent_inner.size).step_by(Directory::SIZE) {
-            let dir = try_log!(Directory::from_inode(&parent, &mut parent_inner, offset));
-
-            if dir.inum as u32 == current_inum {
-                let end = dir.name.iter().position(|&c| c == 0).unwrap_or(DIRSIZE);
-                if let Ok(name) = String::from_utf8(dir.name[..end].to_vec()) {
-                    fullpath.push(name);
-                    fullpath.push(String::from("/"));
-                } else {
-                    return Err(SysError::InvalidArgument);
-                }
-            }
-        }
-
-        drop(parent_inner);
-
-        inode = parent;
-        current_inum = inode.inum;
-        current_lock = inode.lock();
-    }
-
-    fullpath.reverse();
-    let path = fullpath.join("");
-
-    println!("{}", path);
+    let path = try_log!(make_path(inode));
 
     Ok(0)
 }
