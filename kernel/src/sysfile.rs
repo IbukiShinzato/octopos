@@ -433,18 +433,22 @@ pub fn sys_ioctl(args: &SyscallArgs) -> Result<usize, SysError> {
 }
 
 pub fn sys_pwd(args: &SyscallArgs) -> Result<usize, SysError> {
-    let inode = args.proc().data().cwd.clone();
+    let _op = Operation::begin();
+
+    let inode = args.proc().data().cwd.dup();
     let path = try_log!(make_path(inode));
 
     let dst = args.get_addr(0);
     let n = args.get_raw(1);
 
     if path.len() > n {
-        err!(SysError::OutOfMemory);
+        err!(SysError::InvalidArgument);
     }
 
     match copy_to_user(path.as_bytes(), dst) {
         Ok(_) => Ok(path.len()),
-        Err(_) => err!(SysError::BadAddress),
+        Err(_) => {
+            err!(SysError::BadAddress);
+        }
     }
 }

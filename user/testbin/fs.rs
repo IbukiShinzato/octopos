@@ -163,6 +163,8 @@ fn test_root_dir() {
     const BUFSIZE: usize = 4096;
 
     let mut buf = [0u8; BUFSIZE];
+
+    chdir("/").expect("chdir");
     let n = pwd(&mut buf).expect("pwd");
 
     assert_eq!(&buf[..n], "/".as_bytes());
@@ -173,6 +175,7 @@ fn test_multi_dir() {
 
     let dirs = &["test1", "test2", "test3"];
 
+    chdir("/").expect("chdir");
     for dir in dirs {
         mkdir(dir).expect("mkdir");
         chdir(dir).expect("chdir");
@@ -189,14 +192,15 @@ fn test_invalid_buffer_size() {
 
     let mut buf = [0u8; BUFSIZE];
 
-    let dirs = &["test1", "test2", "test3"];
+    let dirs = &["buf1", "buf2", "buf3"];
 
+    chdir("/").expect("chdir");
     for dir in dirs {
         mkdir(dir).expect("mkdir");
         chdir(dir).expect("chdir");
     }
 
-    assert_eq!(pwd(&mut buf), Err(SysError::OutOfMemory));
+    assert_eq!(pwd(&mut buf), Err(SysError::InvalidArgument));
 }
 
 #[unsafe(no_mangle)]

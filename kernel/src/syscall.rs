@@ -118,7 +118,7 @@ impl From<FsError> for SysError {
         match e {
             FsError::OutOfBlock | FsError::OutOfInode => SysError::NoSpace,
             FsError::OutOfFile | FsError::OutOfPipe => SysError::FileTableFull,
-            FsError::OutOfRange => SysError::InvalidArgument,
+            FsError::OutOfRange | FsError::InvalidName => SysError::InvalidArgument,
             FsError::Read | FsError::Write => SysError::IoError,
             FsError::Create => SysError::NoSpace,
             FsError::Link => SysError::AlreadyExists,

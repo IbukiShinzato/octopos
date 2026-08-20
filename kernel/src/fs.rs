@@ -42,6 +42,7 @@ pub enum FsError {
     OutOfFile,
     OutOfRange,
     OutOfPipe,
+    InvalidName,
     Read,
     Write,
     Create,
@@ -59,6 +60,7 @@ impl Display for FsError {
             FsError::OutOfRange => write!(f, "out of range"),
             FsError::OutOfFile => write!(f, "out of file"),
             FsError::OutOfPipe => write!(f, "out of pipe"),
+            FsError::InvalidName => write!(f, "invalid name"),
             FsError::Read => write!(f, "read error"),
             FsError::Write => write!(f, "write error"),
             FsError::Create => write!(f, "create error"),
@@ -1040,46 +1042,73 @@ impl<'a> Path<'a> {
     }
 }
 
-pub fn make_path(mut inode: Inode) -> Result<String, FsError> {
-    let mut current_inum = inode.inum;
-    let mut current_lock = inode.lock();
+pub fn make_path(inode: Inode) -> Result<String, FsError> {
+    let mut current = inode;
+    let mut current_lock = current.lock();
     let mut fullpath = Vec::new();
 
     loop {
-        match Directory::lookup(&inode, &mut current_lock, "..") {
+        if current.inum == ROOTINO {
+            drop(current_lock);
+            current.put();
+            break;
+        }
+
+        match Directory::lookup(&current, &mut current_lock, "..") {
             Ok(Some((_offset, parent))) => {
                 drop(current_lock);
 
-                let mut parent_inner = parent.lock();
+                let mut not_found = true;
+                let mut parent_lock = parent.lock();
 
-                if inode.inum == ROOTINO {
-                    break;
-                }
+                for offset in (0..parent_lock.size).step_by(Directory::SIZE) {
+                    let dir = match Directory::from_inode(&parent, &mut parent_lock, offset) {
+                        Ok(dir) => dir,
+                        Err(e) => {
+                            drop(parent_lock);
+                            parent.put();
+                            current.put();
+                            err!(e);
+                        }
+                    };
 
-                inode.put();
-
-                for offset in (0..parent_inner.size).step_by(Directory::SIZE) {
-                    let dir = try_log!(Directory::from_inode(&parent, &mut parent_inner, offset));
-
-                    if dir.inum as u32 == current_inum {
+                    if dir.inum as u32 == current.inum {
                         let end = dir.name.iter().position(|&c| c == 0).unwrap_or(DIRSIZE);
                         if let Ok(name) = String::from_utf8(dir.name[..end].to_vec()) {
                             fullpath.push(name);
                             fullpath.push(String::from("/"));
+                            not_found = false;
+                            break;
                         } else {
-                            return Err(FsError::OutOfBlock);
+                            drop(parent_lock);
+                            parent.put();
+                            current.put();
+                            return Err(FsError::InvalidName);
                         }
                     }
                 }
 
-                drop(parent_inner);
+                drop(parent_lock);
+                current.put();
 
-                inode = parent;
-                current_inum = inode.inum;
-                current_lock = inode.lock();
+                if not_found {
+                    parent.put();
+                    err!(FsError::Resolve);
+                }
+
+                current = parent;
+                current_lock = current.lock();
             }
-            Ok(None) => return Err(FsError::OutOfRange),
-            Err(e) => return Err(e),
+            Ok(None) => {
+                drop(current_lock);
+                current.put();
+                err!(FsError::OutOfRange);
+            }
+            Err(e) => {
+                drop(current_lock);
+                current.put();
+                err!(e);
+            }
         }
     }
 
