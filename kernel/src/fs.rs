@@ -2,6 +2,9 @@ use core::fmt::Display;
 use core::ptr;
 use core::slice;
 
+use alloc::string::String;
+use alloc::vec::Vec;
+
 use crate::buf::{BCACHE, Buf};
 use crate::log::{self, Operation};
 use crate::param::{NINODE, ROOTDEV};
@@ -39,6 +42,7 @@ pub enum FsError {
     OutOfFile,
     OutOfRange,
     OutOfPipe,
+    InvalidName,
     Read,
     Write,
     Create,
@@ -56,6 +60,7 @@ impl Display for FsError {
             FsError::OutOfRange => write!(f, "out of range"),
             FsError::OutOfFile => write!(f, "out of file"),
             FsError::OutOfPipe => write!(f, "out of pipe"),
+            FsError::InvalidName => write!(f, "invalid name"),
             FsError::Read => write!(f, "read error"),
             FsError::Write => write!(f, "write error"),
             FsError::Create => write!(f, "create error"),
@@ -1035,4 +1040,82 @@ impl<'a> Path<'a> {
     pub fn resolve_parent(&self) -> Result<(Inode, &'a str), FsError> {
         log!(self.resolve_inner(true))
     }
+}
+
+pub fn make_path(inode: Inode) -> Result<String, FsError> {
+    let mut current = inode;
+    let mut current_lock = current.lock();
+    let mut fullpath = Vec::new();
+
+    loop {
+        if current.inum == ROOTINO {
+            drop(current_lock);
+            current.put();
+            break;
+        }
+
+        match Directory::lookup(&current, &mut current_lock, "..") {
+            Ok(Some((_offset, parent))) => {
+                drop(current_lock);
+
+                let mut not_found = true;
+                let mut parent_lock = parent.lock();
+
+                for offset in (0..parent_lock.size).step_by(Directory::SIZE) {
+                    let dir = match Directory::from_inode(&parent, &mut parent_lock, offset) {
+                        Ok(dir) => dir,
+                        Err(e) => {
+                            drop(parent_lock);
+                            parent.put();
+                            current.put();
+                            err!(e);
+                        }
+                    };
+
+                    if dir.inum as u32 == current.inum {
+                        let end = dir.name.iter().position(|&c| c == 0).unwrap_or(DIRSIZE);
+                        if let Ok(name) = String::from_utf8(dir.name[..end].to_vec()) {
+                            fullpath.push(name);
+                            fullpath.push(String::from("/"));
+                            not_found = false;
+                            break;
+                        } else {
+                            drop(parent_lock);
+                            parent.put();
+                            current.put();
+                            return Err(FsError::InvalidName);
+                        }
+                    }
+                }
+
+                drop(parent_lock);
+                current.put();
+
+                if not_found {
+                    parent.put();
+                    err!(FsError::Resolve);
+                }
+
+                current = parent;
+                current_lock = current.lock();
+            }
+            Ok(None) => {
+                drop(current_lock);
+                current.put();
+                err!(FsError::OutOfRange);
+            }
+            Err(e) => {
+                drop(current_lock);
+                current.put();
+                err!(e);
+            }
+        }
+    }
+
+    fullpath.reverse();
+    if fullpath.is_empty() {
+        fullpath.push(String::from("/"));
+    }
+
+    Ok(fullpath.join(""))
 }

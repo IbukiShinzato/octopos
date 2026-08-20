@@ -7,11 +7,11 @@ use alloc::vec::Vec;
 use crate::abi::OpenFlag;
 use crate::exec::exec;
 use crate::file::{FILE_TABLE, File, FileType};
-use crate::fs::{Directory, Inode, InodeType, Path};
+use crate::fs::{Directory, Inode, InodeType, Path, make_path};
 use crate::log::Operation;
 use crate::param::{MAXARG, MAXPATH, NDEV};
 use crate::pipe::Pipe;
-use crate::proc::current_proc_and_data_mut;
+use crate::proc::{copy_to_user, current_proc_and_data_mut};
 use crate::riscv::PGSIZE;
 use crate::syscall::{SysError, SyscallArgs};
 use crate::vm::VA;
@@ -430,4 +430,25 @@ pub fn sys_ioctl(args: &SyscallArgs) -> Result<usize, SysError> {
     let ioctl_arg = args.get_int(2) as usize;
     let (_, file) = try_log!(args.get_file(0));
     log!(file.ioctl(ioctl_cmd, ioctl_arg))
+}
+
+pub fn sys_pwd(args: &SyscallArgs) -> Result<usize, SysError> {
+    let _op = Operation::begin();
+
+    let inode = args.proc().data().cwd.dup();
+    let path = try_log!(make_path(inode));
+
+    let dst = args.get_addr(0);
+    let n = args.get_raw(1);
+
+    if path.len() > n {
+        err!(SysError::InvalidArgument);
+    }
+
+    match copy_to_user(path.as_bytes(), dst) {
+        Ok(_) => Ok(path.len()),
+        Err(_) => {
+            err!(SysError::BadAddress);
+        }
+    }
 }

@@ -118,7 +118,7 @@ impl From<FsError> for SysError {
         match e {
             FsError::OutOfBlock | FsError::OutOfInode => SysError::NoSpace,
             FsError::OutOfFile | FsError::OutOfPipe => SysError::FileTableFull,
-            FsError::OutOfRange => SysError::InvalidArgument,
+            FsError::OutOfRange | FsError::InvalidName => SysError::InvalidArgument,
             FsError::Read | FsError::Write => SysError::IoError,
             FsError::Create => SysError::NoSpace,
             FsError::Link => SysError::AlreadyExists,
@@ -255,6 +255,7 @@ pub enum Syscall {
     Setmsg = 26,
     Getmsg = 27,
     Getpgdir = 28,
+    Pwd = 29,
 }
 
 impl TryFrom<usize> for Syscall {
@@ -290,6 +291,7 @@ impl TryFrom<usize> for Syscall {
             26 => Ok(Syscall::Setmsg),
             27 => Ok(Syscall::Getmsg),
             28 => Ok(Syscall::Getpgdir),
+            29 => Ok(Syscall::Pwd),
             _ => Err(SysError::NotImplemented),
         }
     }
@@ -334,6 +336,7 @@ pub unsafe fn syscall(trapframe: &mut TrapFrame) {
             Syscall::Setmsg => sys_set_msg(&args),
             Syscall::Getmsg => sys_get_msg(&args),
             Syscall::Getpgdir => sys_get_pgdir(&args),
+            Syscall::Pwd => sys_pwd(&args),
         },
         Err(e) => Err(e),
     };
