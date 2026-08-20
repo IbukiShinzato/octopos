@@ -776,7 +776,7 @@ pub fn exit(status: isize) -> ! {
 
     {
         let _op = Operation::begin();
-        let cwd = data.cwd;
+        let cwd = data.cwd.clone();
         cwd.put();
     }
 

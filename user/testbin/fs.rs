@@ -159,6 +159,46 @@ fn test_open_flags() {
     unlink("/fs_flags").expect("unlink");
 }
 
+fn test_root_dir() {
+    const BUFSIZE: usize = 4096;
+
+    let mut buf = [0u8; BUFSIZE];
+    let n = pwd(&mut buf).expect("pwd");
+
+    assert_eq!(&buf[..n], "/".as_bytes());
+}
+
+fn test_multi_dir() {
+    const BUFSIZE: usize = 4096;
+
+    let dirs = &["test1", "test2", "test3"];
+
+    for dir in dirs {
+        mkdir(dir).expect("mkdir");
+        chdir(dir).expect("chdir");
+    }
+
+    let mut buf = [0u8; BUFSIZE];
+    let n = pwd(&mut buf).expect("pwd");
+
+    assert_eq!(&buf[..n], "/test1/test2/test3".as_bytes());
+}
+
+fn test_invalid_buffer_size() {
+    const BUFSIZE: usize = 10;
+
+    let mut buf = [0u8; BUFSIZE];
+
+    let dirs = &["test1", "test2", "test3"];
+
+    for dir in dirs {
+        mkdir(dir).expect("mkdir");
+        chdir(dir).expect("chdir");
+    }
+
+    assert_eq!(pwd(&mut buf), Err(SysError::OutOfMemory));
+}
+
 #[unsafe(no_mangle)]
 fn main(_args: Args) {
     test_create_write_read();
@@ -169,4 +209,7 @@ fn main(_args: Args) {
     test_mkdir();
     test_read_eof();
     test_open_flags();
+    test_root_dir();
+    test_multi_dir();
+    test_invalid_buffer_size();
 }

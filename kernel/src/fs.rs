@@ -283,7 +283,7 @@ impl InodeMeta {
 /// In-memory inode structure
 /// `id` is the index to the actual data in the inode table.
 /// Also holds device and inode numbers for quick lookup.
-#[derive(Copy, Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Inode {
     /// Inode table index
     pub id: usize,
@@ -398,7 +398,7 @@ impl Inode {
     pub fn dup(&self) -> Self {
         let mut meta = INODE_TABLE.meta.lock();
         meta[self.id].r#ref += 1;
-        *self
+        self.clone()
     }
 
     /// Locks the given `inode`. The lifetime of the lock is static since it comes from the table.
@@ -833,7 +833,7 @@ impl Directory {
         unsafe { slice::from_raw_parts(self as *const Self as *const u8, Self::SIZE) }
     }
 
-    pub fn from_inode(
+    fn from_inode(
         inode: &Inode,
         inner: &mut SleepLockGuard<'_, InodeInner>,
         offset: u32,
@@ -1045,34 +1045,42 @@ pub fn make_path(mut inode: Inode) -> Result<String, FsError> {
     let mut current_lock = inode.lock();
     let mut fullpath = Vec::new();
 
-    while let Ok(Some((_offset, parent))) = Directory::lookup(&inode, &mut current_lock, "..") {
-        drop(current_lock);
+    loop {
+        match Directory::lookup(&inode, &mut current_lock, "..") {
+            Ok(Some((_offset, parent))) => {
+                drop(current_lock);
 
-        let mut parent_inner = parent.lock();
+                let mut parent_inner = parent.lock();
 
-        if inode.inum == 1 {
-            break;
-        }
-
-        for offset in (0..parent_inner.size).step_by(Directory::SIZE) {
-            let dir = try_log!(Directory::from_inode(&parent, &mut parent_inner, offset));
-
-            if dir.inum as u32 == current_inum {
-                let end = dir.name.iter().position(|&c| c == 0).unwrap_or(DIRSIZE);
-                if let Ok(name) = String::from_utf8(dir.name[..end].to_vec()) {
-                    fullpath.push(name);
-                    fullpath.push(String::from("/"));
-                } else {
-                    return Err(FsError::OutOfBlock);
+                if inode.inum == ROOTINO {
+                    break;
                 }
+
+                inode.put();
+
+                for offset in (0..parent_inner.size).step_by(Directory::SIZE) {
+                    let dir = try_log!(Directory::from_inode(&parent, &mut parent_inner, offset));
+
+                    if dir.inum as u32 == current_inum {
+                        let end = dir.name.iter().position(|&c| c == 0).unwrap_or(DIRSIZE);
+                        if let Ok(name) = String::from_utf8(dir.name[..end].to_vec()) {
+                            fullpath.push(name);
+                            fullpath.push(String::from("/"));
+                        } else {
+                            return Err(FsError::OutOfBlock);
+                        }
+                    }
+                }
+
+                drop(parent_inner);
+
+                inode = parent;
+                current_inum = inode.inum;
+                current_lock = inode.lock();
             }
+            Ok(None) => return Err(FsError::OutOfRange),
+            Err(e) => return Err(e),
         }
-
-        drop(parent_inner);
-
-        inode = parent;
-        current_inum = inode.inum;
-        current_lock = inode.lock();
     }
 
     fullpath.reverse();

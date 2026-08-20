@@ -148,31 +148,6 @@ fn test_get_pagetable_address() {
     assert_eq!(parent_pgdir_pa, get_pgdir().expect("get_pgdir"));
 }
 
-fn test_root_dir() {
-    const BUFSIZE: usize = 4096;
-
-    let mut buf = [0u8; BUFSIZE];
-    let n = pwd(&mut buf).expect("pwd");
-
-    assert_eq!(&buf[..n], "/".as_bytes());
-}
-
-fn test_multi_dir() {
-    const BUFSIZE: usize = 4096;
-
-    let dirs = &["test1", "test2", "test3"];
-
-    for dir in dirs {
-        mkdir(dir).expect("mkdir");
-        chdir(dir).expect("chdir");
-    }
-
-    let mut buf = [0u8; BUFSIZE];
-    let n = pwd(&mut buf).expect("pwd");
-
-    assert_eq!(&buf[..n], "/test1/test2/test3".as_bytes());
-}
-
 #[unsafe(no_mangle)]
 fn main(_args: Args) {
     test_getpid();
@@ -182,6 +157,4 @@ fn main(_args: Args) {
     test_kill_invalid_pid();
     test_wait_only_own_children();
     test_get_pagetable_address();
-    test_root_dir();
-    test_multi_dir();
 }
