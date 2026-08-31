@@ -5,6 +5,7 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use alloc::boxed::Box;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use crate::error::KernelError;
 use crate::exec::exec;
@@ -337,6 +338,8 @@ pub struct ProcInner {
     pub xstate: isize,
     /// Process ID
     pub pid: Pid,
+    pub tickets: usize,
+    pub pass: usize,
 }
 
 impl ProcInner {
@@ -347,6 +350,8 @@ impl ProcInner {
             killed: false,
             xstate: 0,
             pid: Pid(0),
+            tickets: 0,
+            pass: 0,
         }
     }
 }
@@ -851,6 +856,52 @@ pub fn wait(addr: VA) -> Option<Pid> {
 
         // Wait for a child to exit.
         parents = sleep(Channel::Proc(current_id), parents);
+    }
+}
+
+pub unsafe fn stride_scheduler() -> ! {
+    // cpu does not change throughout the lifetime of the scheduler
+    let cpu = unsafe { current_cpu() };
+
+    cpu.proc.take();
+
+    loop {
+        // The most recent process to run may have had interrupts turned off; enable them to avoid
+        // a deadlock if all processes are waiting. Then, turn them off to avoid possible rece
+        // between an interrupt and wfi.
+        interrupts::enable();
+        interrupts::disable();
+
+        if let Some((proc, _pass)) = PROC_TABLE
+            .iter()
+            .filter_map(|proc| {
+                let inner = proc.inner.lock();
+                if inner.state == ProcState::Runnable {
+                    Some((proc, inner.pass))
+                } else {
+                    None
+                }
+            })
+            .min_by_key(|&(_proc, pass)| pass)
+        {
+            // Switch to chosen process. It is the process's job to release its lock and then
+            // reacquire it before jumping back to us.
+            let mut inner = proc.inner.lock();
+            if inner.state != ProcState::Runnable {
+                continue;
+            }
+
+            inner.state = ProcState::Running;
+            cpu.proc.replace(proc);
+            unsafe { swtch(&mut cpu.context, &proc.data().context) };
+
+            // Process is done running for now.
+            // It should have changed its p->state before coming back.
+            cpu.proc.take();
+        } else {
+            // nothing to run; stop running on this core until an interrupt.
+            unsafe { asm!("wfi") };
+        }
     }
 }
 
