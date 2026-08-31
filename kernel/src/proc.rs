@@ -5,7 +5,6 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use alloc::boxed::Box;
 use alloc::string::String;
-use alloc::vec::Vec;
 
 use crate::error::KernelError;
 use crate::exec::exec;
@@ -25,6 +24,8 @@ use crate::vm::{Kvm, PA, PageTable, Uvm, VA};
 pub static CPU_TABLE: CpuTable = CpuTable::new();
 pub static PROC_TABLE: ProcTable = ProcTable::new();
 pub static INIT_PROC: OnceLock<&Proc> = OnceLock::new();
+
+const LERGE_NUMBER: usize = 3_603_600;
 
 /// Per-CPU state
 pub struct Cpu {
@@ -340,6 +341,8 @@ pub struct ProcInner {
     pub pid: Pid,
     pub tickets: usize,
     pub pass: usize,
+    pub stride: usize,
+    pub n_schedule: usize,
 }
 
 impl ProcInner {
@@ -350,8 +353,10 @@ impl ProcInner {
             killed: false,
             xstate: 0,
             pid: Pid(0),
-            tickets: 0,
+            tickets: 10,
             pass: 0,
+            stride: LERGE_NUMBER / 10,
+            n_schedule: 0,
         }
     }
 }
@@ -894,6 +899,9 @@ pub unsafe fn stride_scheduler() -> ! {
             inner.state = ProcState::Running;
             cpu.proc.replace(proc);
             unsafe { swtch(&mut cpu.context, &proc.data().context) };
+
+            inner.pass += inner.stride;
+            inner.n_schedule += 1;
 
             // Process is done running for now.
             // It should have changed its p->state before coming back.

@@ -85,7 +85,7 @@ pub fn main() -> ! {
         }
     }
 
-    unsafe { proc::scheduler() };
+    unsafe { proc::stride_scheduler() };
 }
 
 pub fn panic_handler(info: &core::panic::PanicInfo<'_>) -> ! {
