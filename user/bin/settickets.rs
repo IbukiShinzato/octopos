@@ -21,7 +21,7 @@ fn main(args: Args) {
             println!("success settickets: {tickets}");
         }
         Err(_) => {
-            eprintln!("settickets: failed to settickets {tickets}");
+            eprintln!("settickets: failed to set tickets {tickets}");
             exit(1)
         }
     }

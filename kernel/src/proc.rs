@@ -339,9 +339,13 @@ pub struct ProcInner {
     pub xstate: isize,
     /// Process ID
     pub pid: Pid,
+    /// Scheduler share
     pub tickets: usize,
+    /// Accumulated stride
     pub pass: usize,
+    /// LARGE_NUMBER / tickets
     pub stride: usize,
+    /// Number of times scheduled
     pub n_schedule: usize,
 }
 
@@ -607,6 +611,10 @@ impl ProcTable {
                 inner.pid = Pid::alloc();
                 inner.state = ProcState::Used;
 
+                inner.tickets = 10;
+                inner.stride = LARGE_NUMBER / 10;
+                inner.n_schedule = 0;
+
                 // # Safety: proc is not yet runnable, so we are the only ones with access to it
                 let data = unsafe { proc.data_mut() };
 
@@ -658,6 +666,19 @@ impl ProcTable {
 
             println!("{} {:?} {}", inner.pid.0, inner.state, proc.data().name);
         }
+    }
+
+    pub fn min_runnable(&self) -> Option<(&Proc, usize)> {
+        self.iter()
+            .filter_map(|proc| {
+                let inner = proc.inner.lock();
+                if inner.state == ProcState::Runnable {
+                    Some((proc, inner.pass))
+                } else {
+                    None
+                }
+            })
+            .min_by_key(|&(_proc, pass)| pass)
     }
 }
 
@@ -722,6 +743,7 @@ pub unsafe fn grow(n: isize, lazy: bool) -> Result<usize, KernelError> {
 /// Sets up the child kernel stack to return as if from `fork()` system call.
 pub fn fork() -> Result<Pid, KernelError> {
     let (proc, data) = current_proc_and_data_mut();
+    let parent_pass = proc.inner.lock().pass;
 
     // allocate process
     let (new_proc, new_inner) = try_log!(PROC_TABLE.alloc());
@@ -765,8 +787,15 @@ pub fn fork() -> Result<Pid, KernelError> {
         parents[new_proc.id] = Some(proc.id);
     }
 
+    let pass = if let Some((_proc, min_pass)) = PROC_TABLE.min_runnable() {
+        min_pass
+    } else {
+        parent_pass
+    };
+
     // re-acquire new proc's lock
     let mut new_inner = new_proc.inner.lock();
+    new_inner.pass = pass;
     new_inner.state = ProcState::Runnable;
 
     Ok(pid)
@@ -876,6 +905,10 @@ pub fn wait(addr: VA) -> Option<Pid> {
     }
 }
 
+/// Per-CPU process scheduler.
+///
+/// # Safety
+/// Must be called with interrupts disabled.
 pub unsafe fn stride_scheduler() -> ! {
     // cpu does not change throughout the lifetime of the scheduler
     let cpu = unsafe { current_cpu() };
@@ -889,18 +922,7 @@ pub unsafe fn stride_scheduler() -> ! {
         interrupts::enable();
         interrupts::disable();
 
-        if let Some((proc, _pass)) = PROC_TABLE
-            .iter()
-            .filter_map(|proc| {
-                let inner = proc.inner.lock();
-                if inner.state == ProcState::Runnable {
-                    Some((proc, inner.pass))
-                } else {
-                    None
-                }
-            })
-            .min_by_key(|&(_proc, pass)| pass)
-        {
+        if let Some((proc, _pass)) = PROC_TABLE.min_runnable() {
             // Switch to chosen process. It is the process's job to release its lock and then
             // reacquire it before jumping back to us.
             let mut inner = proc.inner.lock();
@@ -934,6 +956,7 @@ pub unsafe fn stride_scheduler() -> ! {
 ///
 /// # Safety
 /// Must be called with interrupts disabled.
+#[allow(unused)]
 pub unsafe fn scheduler() -> ! {
     // cpu does not change throughout the lifetime of the scheduler
     let cpu = unsafe { current_cpu() };
