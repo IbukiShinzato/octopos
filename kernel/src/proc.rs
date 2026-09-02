@@ -25,7 +25,7 @@ pub static CPU_TABLE: CpuTable = CpuTable::new();
 pub static PROC_TABLE: ProcTable = ProcTable::new();
 pub static INIT_PROC: OnceLock<&Proc> = OnceLock::new();
 
-const LERGE_NUMBER: usize = 3_603_600;
+const LARGE_NUMBER: usize = 3_603_600;
 
 /// Per-CPU state
 pub struct Cpu {
@@ -355,7 +355,7 @@ impl ProcInner {
             pid: Pid(0),
             tickets: 10,
             pass: 0,
-            stride: LERGE_NUMBER / 10,
+            stride: LARGE_NUMBER / 10,
             n_schedule: 0,
         }
     }
@@ -515,6 +515,18 @@ impl Proc {
         inner.killed = false;
         inner.xstate = 0;
         inner.state = ProcState::Unused;
+    }
+
+    pub fn set_tickets(&self, tickets: usize) -> Result<(), KernelError> {
+        if (10..=150).contains(&tickets) && tickets.is_multiple_of(10) {
+            let mut inner = self.inner.lock();
+            inner.tickets = tickets;
+            inner.stride = LARGE_NUMBER / tickets;
+
+            Ok(())
+        } else {
+            err!(KernelError::InvalidArgument)
+        }
     }
 }
 

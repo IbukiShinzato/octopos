@@ -139,3 +139,13 @@ pub fn sys_get_msg(args: &SyscallArgs) -> Result<usize, SysError> {
 pub fn sys_get_pgdir(args: &SyscallArgs) -> Result<usize, SysError> {
     Ok(get_pgdir(args.proc()).as_usize())
 }
+
+pub fn sys_settickets(args: &SyscallArgs) -> Result<usize, SysError> {
+    let proc = args.proc();
+    let tickets = args.get_raw(0);
+
+    proc.set_tickets(tickets)
+        .map_err(|_| SysError::InvalidArgument)?;
+
+    Ok(0)
+}

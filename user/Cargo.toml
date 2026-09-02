@@ -170,6 +170,13 @@ doctest = false
 bench = false
 
 [[bin]]
+name = "settickets"
+path = "bin/settickets.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
 name = "testrunner"
 path = "testbin/testrunner.rs"
 test = false

@@ -175,6 +175,10 @@ pub mod raw {
     pub fn pwd(buf: *mut u8, n: usize) -> isize {
         syscall2(Syscall::Pwd, buf as usize, n)
     }
+
+    pub fn settickets(tickets: usize) -> isize {
+        syscall1(Syscall::Settickets, tickets)
+    }
 }
 
 use kernel::abi::{MAXPATH, Stat, SysError};
@@ -408,4 +412,8 @@ pub fn get_pgdir() -> Result<usize, SysError> {
 
 pub fn pwd(buf: &mut [u8]) -> Result<usize, SysError> {
     check(raw::pwd(buf.as_mut_ptr(), buf.len()))
+}
+
+pub fn settickets(tickets: usize) -> Result<(), SysError> {
+    check_unit(raw::settickets(tickets))
 }

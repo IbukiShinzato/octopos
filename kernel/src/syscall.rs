@@ -256,6 +256,7 @@ pub enum Syscall {
     Getmsg = 27,
     Getpgdir = 28,
     Pwd = 29,
+    Settickets = 30,
 }
 
 impl TryFrom<usize> for Syscall {
@@ -292,6 +293,7 @@ impl TryFrom<usize> for Syscall {
             27 => Ok(Syscall::Getmsg),
             28 => Ok(Syscall::Getpgdir),
             29 => Ok(Syscall::Pwd),
+            30 => Ok(Syscall::Settickets),
             _ => Err(SysError::NotImplemented),
         }
     }
@@ -337,6 +339,7 @@ pub unsafe fn syscall(trapframe: &mut TrapFrame) {
             Syscall::Getmsg => sys_get_msg(&args),
             Syscall::Getpgdir => sys_get_pgdir(&args),
             Syscall::Pwd => sys_pwd(&args),
+            Syscall::Settickets => sys_settickets(&args),
         },
         Err(e) => Err(e),
     };
