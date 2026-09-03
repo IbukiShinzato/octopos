@@ -1113,6 +1113,14 @@ pub fn wakeup(channel: Channel) {
     // scheduler's context.
     let current_proc = current_proc_opt();
 
+    let baseline = if let Some((_proc, min_pass)) = PROC_TABLE.min_runnable() {
+        Some(min_pass)
+    } else if let Some(proc) = current_proc {
+        Some(proc.inner.lock().pass)
+    } else {
+        None
+    };
+
     for proc in PROC_TABLE.iter() {
         if current_proc.is_some_and(|p| ptr::eq(p, proc)) {
             continue;
@@ -1120,6 +1128,9 @@ pub fn wakeup(channel: Channel) {
 
         let mut inner = proc.inner.lock();
         if inner.state == ProcState::Sleeping && inner.channel == Some(channel) {
+            if let Some(baseline) = baseline {
+                inner.pass = inner.pass.max(baseline);
+            }
             inner.state = ProcState::Runnable;
         }
     }
