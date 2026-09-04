@@ -1,7 +1,7 @@
 pub mod raw {
     use core::arch::asm;
 
-    use kernel::abi::{Stat, Syscall};
+    use kernel::abi::{PStat, Stat, Syscall};
 
     #[inline(always)]
     fn syscall0(syscall: Syscall) -> isize {
@@ -179,9 +179,13 @@ pub mod raw {
     pub fn settickets(tickets: usize) -> isize {
         syscall1(Syscall::Settickets, tickets)
     }
+
+    pub fn getpinfo(buf: *mut PStat) -> isize {
+        syscall1(Syscall::Getpinfo, buf as usize)
+    }
 }
 
-use kernel::abi::{MAXPATH, Stat, SysError};
+use kernel::abi::{MAXPATH, NPROC, PStat, Stat, SysError};
 
 /// A file descriptor returned by or passed to syscalls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -416,4 +420,8 @@ pub fn pwd(buf: &mut [u8]) -> Result<usize, SysError> {
 
 pub fn settickets(tickets: usize) -> Result<(), SysError> {
     check_unit(raw::settickets(tickets))
+}
+
+pub fn getpinfo(buf: &mut [PStat; NPROC]) -> Result<(), SysError> {
+    check_unit(raw::getpinfo(buf.as_mut_ptr()))
 }

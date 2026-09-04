@@ -27,6 +27,37 @@ pub static INIT_PROC: OnceLock<&Proc> = OnceLock::new();
 
 const LARGE_NUMBER: usize = 3_603_600;
 
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
+pub struct PStat {
+    pub inuse: usize,
+    pub pid: usize,
+    pub tickets: usize,
+    pub pass: usize,
+    pub stride: usize,
+    pub n_schedule: usize,
+}
+
+impl PStat {
+    pub fn new(
+        inuse: usize,
+        pid: usize,
+        tickets: usize,
+        pass: usize,
+        stride: usize,
+        n_schedule: usize,
+    ) -> Self {
+        Self {
+            inuse,
+            pid,
+            tickets,
+            pass,
+            stride,
+            n_schedule,
+        }
+    }
+}
+
 /// Per-CPU state
 pub struct Cpu {
     pub proc: Option<&'static Proc>,
@@ -679,6 +710,21 @@ impl ProcTable {
                 }
             })
             .min_by_key(|&(_proc, pass)| pass)
+    }
+
+    pub fn getpinfo(&self, index: usize) -> PStat {
+        let proc = self.get(index);
+        let inner = proc.inner.lock();
+        let inuse = (inner.state != ProcState::Unused) as usize;
+
+        PStat::new(
+            inuse,
+            inner.pid.0,
+            inner.tickets,
+            inner.pass,
+            inner.stride,
+            inner.n_schedule,
+        )
     }
 }
 

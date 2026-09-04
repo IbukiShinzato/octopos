@@ -1,10 +1,14 @@
 use alloc::vec;
 
+use crate::abi::NPROC;
 use crate::memlayout::QEMU_POWER;
 use crate::message::{BUFSIZE, get_msg, set_msg};
-use crate::proc::{self, Channel, Pid, copy_from_user, copy_to_user, current_proc, get_pgdir};
+use crate::proc::{
+    self, Channel, PROC_TABLE, PStat, Pid, copy_from_user, copy_to_user, current_proc, get_pgdir,
+};
 use crate::syscall::{SysError, SyscallArgs};
 use crate::trap::TICKS;
+use crate::vm::VA;
 
 pub fn sys_exit(args: &SyscallArgs) -> ! {
     let n = args.get_int(0);
@@ -146,6 +150,23 @@ pub fn sys_settickets(args: &SyscallArgs) -> Result<usize, SysError> {
 
     proc.set_tickets(tickets)
         .map_err(|_| SysError::InvalidArgument)?;
+
+    Ok(0)
+}
+
+pub fn sys_getpinfo(args: &SyscallArgs) -> Result<usize, SysError> {
+    let mut dst = args.get_addr(0);
+
+    for index in 0..NPROC {
+        let pstat = PROC_TABLE.getpinfo(index);
+        let ptr = (&pstat as *const PStat) as *const u8;
+        let src = unsafe { core::slice::from_raw_parts(ptr, core::mem::size_of::<PStat>()) };
+        if copy_to_user(&src, dst).is_err() {
+            err!(SysError::BadAddress);
+        }
+
+        dst = VA::new(dst.as_usize() + core::mem::size_of::<PStat>());
+    }
 
     Ok(0)
 }
