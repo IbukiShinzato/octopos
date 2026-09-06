@@ -21,7 +21,7 @@ fn main(args: Args) {
         });
 
     match set_msg(buf.as_bytes(), len) {
-        Ok(n) => println!("set_msg; stored {} bytes", n),
+        Ok(n) => println!("set_msg: stored {} bytes", n),
         Err(e) => eprintln!("set_msg: failed: {}", e),
     }
 }
