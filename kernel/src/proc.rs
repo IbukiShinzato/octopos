@@ -1180,11 +1180,7 @@ pub fn wakeup(channel: Channel) {
 
     let baseline = if let Some((_proc, min_pass)) = PROC_TABLE.min_pass(&[ProcState::Runnable]) {
         Some(min_pass)
-    } else if let Some(proc) = current_proc {
-        Some(proc.inner.lock().pass)
-    } else {
-        None
-    };
+    } else { current_proc.map(|proc| proc.inner.lock().pass) };
 
     for proc in PROC_TABLE.iter() {
         if current_proc.is_some_and(|p| ptr::eq(p, proc)) {
