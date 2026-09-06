@@ -3,8 +3,6 @@
 
 use user::*;
 
-const NPROC: usize = 64;
-
 #[unsafe(no_mangle)]
 fn main(args: Args) {
     if args.len() != 1 {
