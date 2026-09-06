@@ -14,12 +14,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Install Rust toolchain
-        run: |
-          rustup toolchain install nightly \
-            --component rustfmt \
-            --target riscv64gc-unknown-none-elf
-
       - name: Check formatting
         run: cargo fmt --all -- --check
 
