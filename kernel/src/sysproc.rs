@@ -161,7 +161,7 @@ pub fn sys_getpinfo(args: &SyscallArgs) -> Result<usize, SysError> {
         let pstat = PROC_TABLE.getpinfo(index);
         let ptr = (&pstat as *const PStat) as *const u8;
         let src = unsafe { core::slice::from_raw_parts(ptr, core::mem::size_of::<PStat>()) };
-        if copy_to_user(&src, dst).is_err() {
+        if copy_to_user(src, dst).is_err() {
             err!(SysError::BadAddress);
         }
 
