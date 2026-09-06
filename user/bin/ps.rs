@@ -15,17 +15,12 @@ fn main(args: Args) {
 
     match getpinfo(&mut pstats) {
         Ok(()) => {
-            println!("PID\tINUSE\tTICKETS\tPASS\t\tSTRIDE\t\tN_SCHEDULE");
+            println!("PID\tTICKETS\t\tPASS\t\tSTRIDE\t\tN_SCHEDULE");
 
             for pstat in pstats.iter().filter(|pstat| pstat.inuse != 0) {
                 println!(
-                    "{}\t{}\t{}\t{}\t{}\t\t{}",
-                    pstat.pid,
-                    pstat.inuse,
-                    pstat.tickets,
-                    pstat.pass,
-                    pstat.stride,
-                    pstat.n_schedule
+                    "{}\t{}\t\t{}\t{}\t\t{}",
+                    pstat.pid, pstat.tickets, pstat.pass, pstat.stride, pstat.n_schedule
                 );
             }
         }

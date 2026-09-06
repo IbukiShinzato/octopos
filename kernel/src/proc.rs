@@ -699,11 +699,11 @@ impl ProcTable {
         }
     }
 
-    pub fn min_runnable(&self) -> Option<(&Proc, usize)> {
+    pub fn min_pass(&self, states: &[ProcState]) -> Option<(&Proc, usize)> {
         self.iter()
             .filter_map(|proc| {
                 let inner = proc.inner.lock();
-                if inner.state == ProcState::Runnable {
+                if states.contains(&inner.state) {
                     Some((proc, inner.pass))
                 } else {
                     None
@@ -833,7 +833,7 @@ pub fn fork() -> Result<Pid, KernelError> {
         parents[new_proc.id] = Some(proc.id);
     }
 
-    let pass = if let Some((_proc, min_pass)) = PROC_TABLE.min_runnable() {
+    let pass = if let Some((_proc, min_pass)) = PROC_TABLE.min_pass(&[ProcState::Runnable]) {
         min_pass
     } else {
         parent_pass
@@ -968,11 +968,30 @@ pub unsafe fn stride_scheduler() -> ! {
         interrupts::enable();
         interrupts::disable();
 
-        if let Some((proc, _pass)) = PROC_TABLE.min_runnable() {
+        if let Some((proc, _pass)) = PROC_TABLE.min_pass(&[ProcState::Runnable]) {
             // Switch to chosen process. It is the process's job to release its lock and then
             // reacquire it before jumping back to us.
             let mut inner = proc.inner.lock();
             if inner.state != ProcState::Runnable {
+                continue;
+            }
+
+            // Check whether the next pass update would overflow.
+            let overflow = inner.pass.checked_add(inner.stride).is_none();
+
+            if overflow {
+                drop(inner);
+
+                if let Some((_proc, baseline)) =
+                    PROC_TABLE.min_pass(&[ProcState::Running, ProcState::Runnable])
+                {
+                    // TODO: pass normalization is not atomic across CPUs.
+                    PROC_TABLE.iter().for_each(|proc| {
+                        let mut inner = proc.inner.lock();
+                        inner.pass = inner.pass.saturating_sub(baseline);
+                    })
+                }
+
                 continue;
             }
 
@@ -1159,7 +1178,7 @@ pub fn wakeup(channel: Channel) {
     // scheduler's context.
     let current_proc = current_proc_opt();
 
-    let baseline = if let Some((_proc, min_pass)) = PROC_TABLE.min_runnable() {
+    let baseline = if let Some((_proc, min_pass)) = PROC_TABLE.min_pass(&[ProcState::Runnable]) {
         Some(min_pass)
     } else if let Some(proc) = current_proc {
         Some(proc.inner.lock().pass)
