@@ -25,6 +25,39 @@ pub static CPU_TABLE: CpuTable = CpuTable::new();
 pub static PROC_TABLE: ProcTable = ProcTable::new();
 pub static INIT_PROC: OnceLock<&Proc> = OnceLock::new();
 
+const LARGE_NUMBER: usize = 3_603_600;
+
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
+pub struct PStat {
+    pub inuse: usize,
+    pub pid: usize,
+    pub tickets: usize,
+    pub pass: usize,
+    pub stride: usize,
+    pub n_schedule: usize,
+}
+
+impl PStat {
+    pub fn new(
+        inuse: usize,
+        pid: usize,
+        tickets: usize,
+        pass: usize,
+        stride: usize,
+        n_schedule: usize,
+    ) -> Self {
+        Self {
+            inuse,
+            pid,
+            tickets,
+            pass,
+            stride,
+            n_schedule,
+        }
+    }
+}
+
 /// Per-CPU state
 pub struct Cpu {
     pub proc: Option<&'static Proc>,
@@ -337,6 +370,14 @@ pub struct ProcInner {
     pub xstate: isize,
     /// Process ID
     pub pid: Pid,
+    /// Scheduler share
+    pub tickets: usize,
+    /// Accumulated stride
+    pub pass: usize,
+    /// LARGE_NUMBER / tickets
+    pub stride: usize,
+    /// Number of times scheduled
+    pub n_schedule: usize,
 }
 
 impl ProcInner {
@@ -347,6 +388,10 @@ impl ProcInner {
             killed: false,
             xstate: 0,
             pid: Pid(0),
+            tickets: 10,
+            pass: 0,
+            stride: LARGE_NUMBER / 10,
+            n_schedule: 0,
         }
     }
 }
@@ -506,6 +551,18 @@ impl Proc {
         inner.xstate = 0;
         inner.state = ProcState::Unused;
     }
+
+    pub fn set_tickets(&self, tickets: usize) -> Result<(), KernelError> {
+        if (10..=150).contains(&tickets) && tickets.is_multiple_of(10) {
+            let mut inner = self.inner.lock();
+            inner.tickets = tickets;
+            inner.stride = LARGE_NUMBER / tickets;
+
+            Ok(())
+        } else {
+            err!(KernelError::InvalidArgument)
+        }
+    }
 }
 
 /// # Safety
@@ -585,6 +642,10 @@ impl ProcTable {
                 inner.pid = Pid::alloc();
                 inner.state = ProcState::Used;
 
+                inner.tickets = 10;
+                inner.stride = LARGE_NUMBER / 10;
+                inner.n_schedule = 0;
+
                 // # Safety: proc is not yet runnable, so we are the only ones with access to it
                 let data = unsafe { proc.data_mut() };
 
@@ -636,6 +697,34 @@ impl ProcTable {
 
             println!("{} {:?} {}", inner.pid.0, inner.state, proc.data().name);
         }
+    }
+
+    pub fn min_pass(&self, states: &[ProcState]) -> Option<(&Proc, usize)> {
+        self.iter()
+            .filter_map(|proc| {
+                let inner = proc.inner.lock();
+                if states.contains(&inner.state) {
+                    Some((proc, inner.pass))
+                } else {
+                    None
+                }
+            })
+            .min_by_key(|&(_proc, pass)| pass)
+    }
+
+    pub fn getpinfo(&self, index: usize) -> PStat {
+        let proc = self.get(index);
+        let inner = proc.inner.lock();
+        let inuse = (inner.state != ProcState::Unused) as usize;
+
+        PStat::new(
+            inuse,
+            inner.pid.0,
+            inner.tickets,
+            inner.pass,
+            inner.stride,
+            inner.n_schedule,
+        )
     }
 }
 
@@ -700,6 +789,7 @@ pub unsafe fn grow(n: isize, lazy: bool) -> Result<usize, KernelError> {
 /// Sets up the child kernel stack to return as if from `fork()` system call.
 pub fn fork() -> Result<Pid, KernelError> {
     let (proc, data) = current_proc_and_data_mut();
+    let parent_pass = proc.inner.lock().pass;
 
     // allocate process
     let (new_proc, new_inner) = try_log!(PROC_TABLE.alloc());
@@ -743,8 +833,15 @@ pub fn fork() -> Result<Pid, KernelError> {
         parents[new_proc.id] = Some(proc.id);
     }
 
+    let pass = if let Some((_proc, min_pass)) = PROC_TABLE.min_pass(&[ProcState::Runnable]) {
+        min_pass
+    } else {
+        parent_pass
+    };
+
     // re-acquire new proc's lock
     let mut new_inner = new_proc.inner.lock();
+    new_inner.pass = pass;
     new_inner.state = ProcState::Runnable;
 
     Ok(pid)
@@ -855,6 +952,67 @@ pub fn wait(addr: VA) -> Option<Pid> {
 }
 
 /// Per-CPU process scheduler.
+///
+/// # Safety
+/// Must be called with interrupts disabled.
+pub unsafe fn stride_scheduler() -> ! {
+    // cpu does not change throughout the lifetime of the scheduler
+    let cpu = unsafe { current_cpu() };
+
+    cpu.proc.take();
+
+    loop {
+        // The most recent process to run may have had interrupts turned off; enable them to avoid
+        // a deadlock if all processes are waiting. Then, turn them off to avoid possible rece
+        // between an interrupt and wfi.
+        interrupts::enable();
+        interrupts::disable();
+
+        if let Some((proc, _pass)) = PROC_TABLE.min_pass(&[ProcState::Runnable]) {
+            // Switch to chosen process. It is the process's job to release its lock and then
+            // reacquire it before jumping back to us.
+            let mut inner = proc.inner.lock();
+            if inner.state != ProcState::Runnable {
+                continue;
+            }
+
+            // Check whether the next pass update would overflow.
+            let overflow = inner.pass.checked_add(inner.stride).is_none();
+
+            if overflow {
+                drop(inner);
+
+                if let Some((_proc, baseline)) =
+                    PROC_TABLE.min_pass(&[ProcState::Running, ProcState::Runnable])
+                {
+                    // TODO: pass normalization is not atomic across CPUs.
+                    PROC_TABLE.iter().for_each(|proc| {
+                        let mut inner = proc.inner.lock();
+                        inner.pass = inner.pass.saturating_sub(baseline);
+                    })
+                }
+
+                continue;
+            }
+
+            inner.state = ProcState::Running;
+            cpu.proc.replace(proc);
+            unsafe { swtch(&mut cpu.context, &proc.data().context) };
+
+            inner.pass += inner.stride;
+            inner.n_schedule += 1;
+
+            // Process is done running for now.
+            // It should have changed its p->state before coming back.
+            cpu.proc.take();
+        } else {
+            // nothing to run; stop running on this core until an interrupt.
+            unsafe { asm!("wfi") };
+        }
+    }
+}
+
+/// Per-CPU process scheduler.
 /// Each CPU calls `scheduler` after setting itself up.
 /// Scheduler never returns. It loops, doing:
 ///     - choose a process to run.
@@ -863,6 +1021,7 @@ pub fn wait(addr: VA) -> Option<Pid> {
 ///
 /// # Safety
 /// Must be called with interrupts disabled.
+#[allow(unused)]
 pub unsafe fn scheduler() -> ! {
     // cpu does not change throughout the lifetime of the scheduler
     let cpu = unsafe { current_cpu() };
@@ -1019,6 +1178,10 @@ pub fn wakeup(channel: Channel) {
     // scheduler's context.
     let current_proc = current_proc_opt();
 
+    let baseline = if let Some((_proc, min_pass)) = PROC_TABLE.min_pass(&[ProcState::Runnable]) {
+        Some(min_pass)
+    } else { current_proc.map(|proc| proc.inner.lock().pass) };
+
     for proc in PROC_TABLE.iter() {
         if current_proc.is_some_and(|p| ptr::eq(p, proc)) {
             continue;
@@ -1026,6 +1189,9 @@ pub fn wakeup(channel: Channel) {
 
         let mut inner = proc.inner.lock();
         if inner.state == ProcState::Sleeping && inner.channel == Some(channel) {
+            if let Some(baseline) = baseline {
+                inner.pass = inner.pass.max(baseline);
+            }
             inner.state = ProcState::Runnable;
         }
     }
