@@ -351,3 +351,97 @@ acquire()/release()           SpinLockGuard + Drop
 などはRustコンパイラだけでは防げない。
 
 したがって、Rustによってメモリ安全性やresource lifetime管理の一部は強化できる一方、OSカーネルに必要な並行処理やscheduler固有の論理的安全性は依然としてプログラマが設計・検証する必要がある。
+
+## 2. Proc構造体
+
+- Cではヘッダーファイル（`.h`）で定義されていて、Rustではソースファイル（`.rs`）で定義されている
+- Cでは`Proc`構造体の中に全てのフィールドがあって、コメントでlockするべきフィールドとlockしないで良いフィールドを分けているが、Rustではlockすべき場所は`Spinlock`、lockする必要がない（シングルスレッドでの更新）では`UnsafeCell`でユーザ自身が責任を持つフィールドに分離している
+
+### Processの初期化
+
+- Rustの場合、`iterator`を回して、`unsafe`を使用して`kernelstack`のポインタを入れている
+- また、カーネル起動時にのみ呼び出す前提で、`UnsafeCell`で可変参照として取得してそれぞれのspを入れている（`data_mut`メソッド経由で更新）
+- Procのprivateなフィールドを触る場合、Rustでは`unsafe`を明示した上で可変参照をとって変更、Cではどのフィールドに対しても`lock`を取得して更新する
+
+```
+// initialize the proc table.
+void
+procinit(void)
+{
+  struct proc *p;
+
+  initlock(&pid_lock, "nextpid");
+  initlock(&wait_lock, "wait_lock");
+  for(p = proc; p < &proc[NPROC]; p++) {
+      initlock(&p->lock, "proc");
+      p->state = UNUSED;
+      p->kstack = KSTACK((int) (p - proc));
+  }
+}
+```
+
+```
+/// Initializes the process table.
+///
+/// # Safety
+/// Must be called only once during kernel initialization.
+pub unsafe fn init() {
+    for proc in PROC_TABLE.iter() {
+        // # Safety: we are during initialization, so we are the only ones with access to the proc
+        unsafe { proc.data_mut() }.kstack = VA::from(kstack(proc.id));
+    }
+
+    println!("proc init");
+```
+
+- メソッド自体にも参照だけか可変参照が必要かで分けられている
+  - これらはコンパイル時に検知されるので、不必要な可変参照の取得を検知して実行前に確認することができる
+
+```
+    /// Returns a reference to the trapframe.
+    pub fn trapframe(&self) -> &TrapFrame {
+        self.trapframe.as_ref().unwrap()
+    }
+
+    /// Returns a mutable reference to the trapframe.
+    pub fn trapframe_mut(&mut self) -> &mut TrapFrame {
+        self.trapframe.as_mut().unwrap()
+    }
+
+    /// Returns a reference to the user page table.
+    pub fn pagetable(&self) -> &Uvm {
+        self.pagetable.as_ref().unwrap()
+    }
+
+    /// Returns a mutable reference to the user page table.
+    pub fn pagetable_mut(&mut self) -> &mut Uvm {
+        self.pagetable.as_mut().unwrap()
+    }
+```
+
+- dataの参照だけなら`unsafe`ブロックでの呼び出しは必要ないが、可変参照なら`unsafe`ブロック内で呼び出す必要がある
+
+```
+    pub fn data(&self) -> &ProcData {
+        unsafe { &*self.data.get() }
+    }
+
+    /// Returns a mutable reference to the process's data.
+    ///
+    /// # Safety
+    /// The caller must ensure they have exclusive access to the `Proc`. This is true if either
+    ///     1. it's the current proc (most cases) or
+    ///     2. the proc's state hasn't been set to Runnable/Sleeping yet (fork, allocproc).
+    #[allow(clippy::mut_from_ref)]
+    pub unsafe fn data_mut(&self) -> &mut ProcData {
+        unsafe { &mut *self.data.get() }
+    }
+```
+
+- Cell
+  - Cell<T>の更新はTを取り出してTを置き換える
+  - 可変参照は必要ない
+- RefCell
+  - RefCell<T>では可変参照を取得しないでも更新ができる
+  - 複数からの可変参照はruntimeで検知する
+  - `borrow_mut`メソッド経由での中身を更新する
