@@ -255,7 +255,7 @@ unsafe {
 };
 ```
 
-Octopos/xv6では、process側が実行中にこのproc lockを解放し、schedulerへ戻る前に再取得するという特殊なlock handoff protocolを利用している。
+`octopos`/`xv6`では、process側が実行中にこのproc lockを解放し、schedulerへ戻る前に再取得するという特殊なlock handoff protocolを利用している。
 
 そのため、RustのRAIIによって最終的なlockの解放忘れを防ぐことはできるものの、
 
