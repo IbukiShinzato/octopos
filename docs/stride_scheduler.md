@@ -1,36 +1,42 @@
-# Stride Scheduler
+# Stride Scheduler実装を通したxv6とoctoposの比較
 
-- `Stride Scheduler`は、各プロセスに`pass`というフィールドを持たせ、`Runnable`なプロセスのうち`pass`が最小のものを優先して実行するスケジューラである。
-- 各プロセスには`tickets`が与えられ、ある定数を`tickets`で割った値を`stride`とする。
-- プロセスがスケジュールされるたびに、そのプロセスの`pass`へ`stride`を加算する。
-- `tickets`が大きいプロセスほど`stride`が小さくなるため、より高い頻度で選択され、`tickets`に応じたCPU配分を実現できる。
-- 既存の`Round Robin`が基本的に各`Runnable`プロセスを順番に選択するのに対し、`Stride Scheduler`では`pass`の大小を利用して実行対象を決定する。
+## 1. 目的
 
-## 今回の目的
+今回のタスクでは、Cで実装されたxv6とRustで実装されたoctoposの両方にStride Schedulerを実装し、その実装を通して両OSにどのような違いが現れるかを整理した。
 
-- `xv6`上でCによって実装したStride Schedulerと、`octopos`上でRustによって実装したStride Schedulerを比較する。
-- 単なる文法上の違いではなく、スケジューラ実装で扱うプロセス、ロック、CPU状態などのメモリオブジェクトに対して、Rustの型システムやRAIIによってどこまで安全性を高められるのかを確認する。
-- 一方で、並行実行時の論理的な競合やcontext switchをまたぐlock protocolなど、Rustコンパイラだけでは保証できない境界についても整理する。
+Stride Schedulerそのものは、各processに`tickets`、`stride`、`pass`を持たせ、`Runnable`なprocessのうち`pass`が最小のprocessを次に実行するschedulerである。
 
-## 1. Scheduler本体（C vs Rust）
+`stride`は一定値を`tickets`で割った値として求め、processがscheduleされるたびに`pass`へ`stride`を加算する。`tickets`が大きいprocessほど`stride`が小さくなるため、より高い頻度で選択され、ticketsに応じたCPU時間配分を実現できる。
 
-### Schedulerの戻り値の型（`void` vs `!`）
+比較では、単なるCとRustの文法差ではなく、Stride Schedulerを実装・デバッグする過程で確認できた以下の点を中心に整理する。
 
-C版ではschedulerの戻り値は`void`である。
+1. Scheduler本体の実装
+2. Kernel stack overflowの挙動
+3. `Proc`構造体とprocess状態の管理
+4. Syscallの実装
+5. Rustによって安全性を高められる部分と、OS側で依然として保証する必要がある部分
 
-RustではCの`void`に近い型としてunit型`()`が存在するが、`octopos`のschedulerでは以下のようにnever型`!`が使われている。
+---
+
+## 2. Stride Scheduler本体の比較
+
+### 2.1 Schedulerの戻り値
+
+C版xv6ではschedulerは`void`を返す関数として実装される。
+
+一方、octoposでは以下のようにnever型`!`が利用されている。
 
 ```rust
 pub unsafe fn stride_scheduler() -> !
 ```
 
-`!`は単に「値を返さない」ことではなく、この関数が呼び出し元へ正常にreturnしないことを型として表している。
+`!`は単に「値を返さない」ことではなく、この関数が呼び出し元へ正常にreturnしないことを型として表す。
 
-schedulerは内部で無限loopを実行し続けるため、`!`によって「schedulerは戻らない」という性質を型として表現できる。
+schedulerは内部で無限loopを実行し続けるため、octoposでは「schedulerは戻らない」という性質を型に含めて表現できる。
 
-### 現在のCPUで実行しているProcの表現
+### 2.2 現在CPUで実行しているprocessの表現
 
-C版ではCPUが現在実行しているprocessをpointerで保持し、processを実行していない場合は`0`（NULL）を代入する。
+xv6ではCPUが現在実行しているprocessをpointerで保持し、processを実行していない場合はNULLを格納する。
 
 ```c
 c->proc = best_p;
@@ -40,7 +46,7 @@ c->proc = best_p;
 c->proc = 0;
 ```
 
-Rust版では`cpu.proc`が`Option<&Proc>`として表現されており、processを実行するときは`Some(proc)`、scheduler自身を実行しているときは`None`として表現する。
+octoposでは`cpu.proc`が`Option<&Proc>`として表現される。
 
 ```rust
 cpu.proc.replace(proc);
@@ -50,26 +56,22 @@ cpu.proc.replace(proc);
 cpu.proc.take();
 ```
 
-`replace(proc)`によって`cpu.proc`は`Some(proc)`になり、`take()`によって中身を取り出して`None`へ戻る。
-
 このため、
 
 ```text
-process実行中   : cpu.proc = Some(proc)
-scheduler実行中 : cpu.proc = None
+process実行中   : Some(proc)
+scheduler実行中 : None
 ```
 
 という状態を`Option`型として表現できる。
 
-Cではnullableなpointerとして「有効なProcへのpointer」と「processなし」を同じpointer型で表すのに対し、Rustでは`Some`/`None`として状態を型に含めることができる。
+xv6ではnullable pointerとして「processが存在する／存在しない」を表現するのに対し、octoposでは`Some`/`None`として状態を型に含められる。
 
 ただし、`Some(proc)`に論理的に正しいprocessが格納されているかどうかまではRustコンパイラは保証しない。
 
-## 2. 次に実行するProcの選択
+### 2.3 次に実行するprocessの選択
 
-### C版
-
-C版では各processのlockを取得して`state`と`pass`を確認する。
+xv6版ではprocess tableを走査し、各processのlockを取得して`state`と`pass`を確認する。
 
 ```c
 for(p = proc; p < &proc[NPROC]; p++) {
@@ -90,13 +92,11 @@ for(p = proc; p < &proc[NPROC]; p++) {
 }
 ```
 
-現在の`best_p`より小さい`pass`を持つprocessを見つけた場合、それまでの`best_p`のlockを解放し、新しい`best_p`のlockを保持したまま次のprocessを探索する。
+現在の`best_p`より小さい`pass`を持つprocessを見つけた場合、それまでの候補のlockを解放し、新しい候補のlockを保持したまま探索を続ける。
 
-そのため、最終的に選択された`best_p`については、ループ終了後もlockを保持している。
+そのため、最終的に選択された`best_p`についてはloop終了後もlockを保持している。
 
-### Rust版
-
-Rust版では以下の`min_pass()`で対象processを探索する。
+一方、octoposでは`min_pass()`で各processを順番にlockして`state`と`pass`を確認する。
 
 ```rust
 pub fn min_pass(&self, states: &[ProcState]) -> Option<(&Proc, usize)> {
@@ -130,84 +130,11 @@ SpinLockGuardがDropされてunlock
 
 という流れになる。
 
-したがって、C版のように現在のbest processのlockを保持したまま次のprocessを調べるのではなく、各processの`pass`だけを取得し、そのprocessのlockは次のprocessを見る前に解放される。
+したがってoctoposでは、process tableの探索中に複数の`ProcInner` lockを同時に保持しない。
 
-`min_pass()`から返された時点では選択されたprocessのlockも解放済みであるため、scheduler側でもう一度lockを取得する。
+ただし、`min_pass()`でprocessを選択してからscheduler側で再度lockするまでの間に、別CPUによってprocessのstateが変更される可能性がある。
 
-```rust
-let mut inner = proc.inner.lock();
-
-if inner.state != ProcState::Runnable {
-    continue;
-}
-```
-
-`min_pass()`で情報を取得してから再度lockするまでの間に、別CPUによってprocessのstateが変更される可能性がある。そのため、再lock後に`Runnable`であることを再確認している。
-
-この実装ではselection中に複数の`ProcInner` lockを同時に保持しない一方、`min_pass()`で取得した情報はprocess table全体のatomic snapshotではない。
-
-なお、この差はRust言語によって必然的に生じるものではなく、Rust版で採用した実装設計上の違いである。Rustでもlock guardを保持し続ける設計自体は可能である。
-
-## 3. CPUへのprocess割り当て
-
-C版では選択されたprocess pointerを直接CPUへ設定する。
-
-```c
-c->proc = best_p;
-```
-
-Rust版では`Option<&Proc>`へ設定する。
-
-```rust
-cpu.proc.replace(proc);
-```
-
-この時点で、
-
-```text
-C    : c->proc = best_p
-Rust : cpu.proc = Some(proc)
-```
-
-となる。
-
-processからschedulerへ戻った後は、
-
-```text
-C    : c->proc = 0
-Rust : cpu.proc.take() → None
-```
-
-として、現在このCPU上でprocessを実行していないことを表す。
-
-Rustではcurrent processの有無を`Option`によって明示できるため、NULLそのものを直接扱う必要がない。
-
-## 4. 選択後のprocess lockとcontext switch
-
-### C版
-
-最終的に選択された`best_p`についてはlockを保持したまま、`pass`更新、state変更、CPUへのprocess設定、context switchを行う。
-
-```c
-best_p->pass += best_p->stride;
-best_p->time++;
-
-best_p->state = RUNNING;
-c->proc = best_p;
-
-swtch(&c->context, &best_p->context);
-
-before_pid = best_p->pid;
-c->proc = 0;
-
-release(&best_p->lock);
-```
-
-`release()`を明示的に呼び出す必要があり、適切な位置で`release()`を呼ばなければlockの解放忘れにつながる。
-
-### Rust版
-
-Rust版では選択されたprocessを再lockしてからcontext switchを行う。
+そのため再lock後に、
 
 ```rust
 let mut inner = proc.inner.lock();
@@ -215,52 +142,54 @@ let mut inner = proc.inner.lock();
 if inner.state != ProcState::Runnable {
     continue;
 }
-
-inner.state = ProcState::Running;
-cpu.proc.replace(proc);
-
-unsafe {
-    swtch(&mut cpu.context, &proc.data().context)
-};
-
-inner.pass += inner.stride;
-inner.n_schedule += 1;
-
-cpu.proc.take();
 ```
 
-`inner`は`SpinLockGuard`であり、通常はscopeを抜けると`Drop`によってlockが解放される。
+として、processが依然として`Runnable`であることを確認する。
 
-そのためC版のような`release(&p->lock)`の明示的な呼び出しを通常は必要としない。
+この差はRustによって必然的に生じるものではなく、xv6版とoctopos版で採用したscheduler実装方針の違いである。
 
-ただし、早い段階でlockを解放する必要がある場合には、
+### 2.4 Lock管理
+
+xv6ではlockの取得・解放を明示的に行う。
+
+```c
+acquire(&p->lock);
+...
+release(&p->lock);
+```
+
+そのため、開発者が適切な位置で`release()`を呼び出す必要がある。
+
+octoposでは、
+
+```rust
+let mut inner = proc.inner.lock();
+```
+
+によって`SpinLockGuard`を取得し、通常はscopeを抜けた際の`Drop`によってlockが自動的に解放される。
+
+必要な場合には、
 
 ```rust
 drop(inner);
 ```
 
-のように明示的にguardをDropすることもある。
+として明示的に早くlockを解放することもできる。
 
-## 5. `swtch()`をまたぐlock protocol
+この点では、RustのRAIIによって通常のcontrol flowにおけるlock解放忘れを防ぎやすくなっている。
 
-C版・Rust版ともに、選択されたprocessのlockを保持した状態で`swtch()`へ入る。
+### 2.5 Context switchをまたぐlock protocol
 
-Rust版では`SpinLockGuard`である`inner`自体はscheduler stack上に残ったままcontext switchが行われる。
+xv6とoctoposの両方で、選択されたprocessのlockを保持した状態で`swtch()`へ入る。
 
-```rust
-let mut inner = proc.inner.lock();
+octoposでも`SpinLockGuard`である`inner`はscheduler stack上に残ったままcontext switchされる。
 
-unsafe {
-    swtch(&mut cpu.context, &proc.data().context)
-};
-```
-
-`octopos`/`xv6`では、process側が実行中にこのproc lockを解放し、schedulerへ戻る前に再取得するという特殊なlock handoff protocolを利用している。
-
-そのため、RustのRAIIによって最終的なlockの解放忘れを防ぐことはできるものの、
+概念的には、
 
 ```text
-schedulerがlockを保持してswtch
+schedulerがproc lockを保持
+        ↓
+context switch
         ↓
 process側でlockを解放
         ↓
@@ -269,13 +198,15 @@ processからschedulerへ戻る前に再取得
 schedulerへ復帰
 ```
 
-というOS固有のprotocolそのものの正しさまではRustコンパイラは保証しない。
+という特殊なlock handoff protocolになる。
 
-また、`swtch()`自体が`unsafe`であるため、context、register、lock状態などについて必要なinvariantをカーネル実装側で保証する必要がある。
+RAIIによって最終的なlock解放を管理しやすくすることはできるが、このcontext switchをまたぐprotocol自体が正しいことをRustコンパイラが証明してくれるわけではない。
 
-## 6. `pass`更新タイミングの違い
+また、`swtch()`自体が`unsafe`であるため、context、register、stack、lock状態などについて必要なinvariantをkernel側で保証する必要がある。
 
-C版ではcontext switch前に`pass`を更新している。
+### 2.6 `pass`更新タイミング
+
+今回実装したxv6版ではcontext switch前に`pass`を更新する。
 
 ```c
 best_p->pass += best_p->stride;
@@ -284,7 +215,7 @@ best_p->time++;
 swtch(&c->context, &best_p->context);
 ```
 
-一方、今回のRust版ではprocessからschedulerへ戻った後に更新している。
+一方、octopos版ではprocessからschedulerへ戻った後に更新する。
 
 ```rust
 unsafe {
@@ -295,76 +226,79 @@ inner.pass += inner.stride;
 inner.n_schedule += 1;
 ```
 
-これはRustの型システムや安全性による違いではなく、今回それぞれのStride Schedulerを実装した際の実装方針の違いである。
+この差もRustとCの言語仕様によるものではなく、今回それぞれにStride Schedulerを実装した際の実装方針の違いである。
 
-したがって、CとRustの言語上の安全性比較とは分けて扱う。
+---
 
-## 7. Rustが保証・支援できるもの
+## 3. Kernel stack overflowの挙動
 
-- `Option<&Proc>`によってcurrent processの「存在する／存在しない」を`Some`/`None`として型で表現できる。
-- Cのnullable pointerを直接操作する必要がなく、`Option`を利用するコードではcurrent processが存在しない場合を明示的に扱わせることができる。
-- `SpinLockGuard`のRAIIによって、通常のscopeを抜ける際の`release()`忘れを防ぎやすい。
-- lock guardのlifetimeによって、lock取得中のデータへのアクセス範囲がコード上で明示される。
-- `stride_scheduler() -> !`によって、schedulerが正常にはreturnしないことを型として表現できる。
-- `checked_add()`などを利用することで、整数overflowを明示的に検出するAPIを利用できる。
+Stride Scheduler実装後のデバッグではkernel stackについても確認した。
 
-## 8. Rustでも保証できないもの
+octoposではrelease build時に、
 
-- `cpu.proc`に論理的に正しいprocessが設定されているか。
-- `min_pass()`で選択したprocessが、再lockする時点でも`Runnable`であるか。
-- 複数lock間のlock orderingやdeadlockが発生しないこと。
-- SMP環境でprocess table全体を見たときのatomicityやschedulerのfairness。
-- pass値の正規化を複数CPUからatomicに観測できること。
-- context switchをまたぐproc lockのhandoff protocolが正しく守られていること。
-- `unsafe`な`swtch()`で要求されるcontextやregisterのinvariant。
-- Stride Schedulingアルゴリズムそのものが論理的に正しいこと。
+```rust
+pub const PGSHIFT: usize = 12;
+pub const PGSIZE: usize = 1 << PGSHIFT; // 4 KiB
 
-つまりRustによって、Cでは開発者が手動で管理していたnullable pointerやlock guardのlifetimeなど、一部の状態・resource管理を型システムやRAIIへ移すことができる。
+#[cfg(not(debug_assertions))]
+pub const NKSTACK_PAGES: usize = 1;
+```
 
-一方で、schedulerにおけるprocess stateの変化、SMP上の競合、lock ordering、context switchをまたぐlock protocolなど、OS固有の論理的なinvariantについては依然として開発者側で保証する必要がある。
+となっており、1 processあたりのkernel stackは1 page、すなわち4 KiBである。
 
-## Scheduler本体の比較から分かったこと
+xv6でも各processにkernel stackを割り当て、その隣にguard pageを設ける構成を取る。
 
-Scheduler本体を比較した結果、Rust化によってStride Schedulingというアルゴリズムそのものが安全になるわけではないことが分かった。
+kernel stackが範囲を越えてguard pageなどのunmapped領域へアクセスするとpage faultとなり、kernel trapとして検出される。
 
-一方で、以下のようにCでは開発者が手動で管理していた一部の状態をRustの型システムやRAIIによって表現・管理できる。
+この点で重要なのは、Rustでkernelが実装されていてもkernel stack overflowそのものをborrow checkerが防止するわけではないことである。
+
+Rustの型システムが主に保証するのは参照や所有権に関するmemory safetyであり、
 
 ```text
-C                             Rust
-
-Proc * / NULL                 Option<&Proc>
-acquire()/release()           SpinLockGuard + Drop
-戻らないことは実装上の性質    戻り値型 !
+再帰が深すぎる
+stack frameが大きすぎる
+kernel stackの4 KiBを使い切る
 ```
 
-しかし、
+といったstack使用量そのものを静的に保証するものではない。
+
+したがってkernel stack overflowに関しては、xv6とoctoposの両方で、stack配置・guard page・trap処理などkernel側のmechanismによって異常を検出する必要がある。
+
+今回のデバッグではkernel stackの詳細なfault原因の追跡までは行わず、release buildでのstack sizeと仮想メモリ上の配置、overflow時にはpage faultとして現れる点までを確認した。
+
+---
+
+## 4. `Proc`構造体の比較
+
+Stride Schedulerを実装する際には、processの`state`、`pass`、`stride`、`tickets`などを扱うため、xv6とoctoposの`Proc`構造体の違いが直接実装方法に影響した。
+
+### 4.1 構造体とlockの設計
+
+xv6では`struct proc`にprocessに関するfieldをまとめ、それぞれのfieldをどのlockで保護するかなどの条件をコメントや実装規約として管理する。
+
+octoposでは、複数の実行主体からアクセスされ排他制御が必要なデータと、OS側の条件によってexclusive accessを保証するデータを分離し、`SpinLock`や`UnsafeCell`を利用している。
+
+概念的には、
 
 ```text
-- process stateが並行して変化する
-- staleなscheduler選択結果
-- lock ordering
-- deadlock
-- SMP上でのatomicity
-- context switchをまたぐlock protocol
+複数の実行主体から同時アクセスされる可能性がある
+        ↓
+SpinLockによって排他制御
+
+OSの状態・実行規約によってexclusive accessを保証できる
+        ↓
+UnsafeCell + unsafe
 ```
 
-などはRustコンパイラだけでは防げない。
+という使い分けになる。
 
-したがって、Rustによってメモリ安全性やresource lifetime管理の一部は強化できる一方、OSカーネルに必要な並行処理やscheduler固有の論理的安全性は依然としてプログラマが設計・検証する必要がある。
+`UnsafeCell`自体には排他制御機能はないため、同時アクセスしないことをOS側のinvariantとして保証する必要がある。
 
-## 2. Proc構造体
+### 4.2 Processの初期化
 
-- Cではヘッダーファイル（`.h`）で定義されていて、Rustではソースファイル（`.rs`）で定義されている
-- Cでは`Proc`構造体の中に全てのフィールドがあって、コメントでlockするべきフィールドとlockしないで良いフィールドを分けているが、Rustではlockすべき場所は`Spinlock`、lockする必要がない（シングルスレッドでの更新）では`UnsafeCell`でユーザ自身が責任を持つフィールドに分離している
+xv6では`procinit()`でprocess tableを走査し、lock、state、kernel stackなどを初期化する。
 
-### Processの初期化
-
-- Rustの場合、`iterator`を回して、`unsafe`を使用して`kernelstack`のポインタを入れている
-- また、カーネル起動時にのみ呼び出す前提で、`UnsafeCell`で可変参照として取得してそれぞれのspを入れている（`data_mut`メソッド経由で更新）
-- Procのprivateなフィールドを触る場合、Rustでは`unsafe`を明示した上で可変参照をとって変更、Cではどのフィールドに対しても`lock`を取得して更新する
-
-```
-// initialize the proc table.
+```c
 void
 procinit(void)
 {
@@ -372,76 +306,298 @@ procinit(void)
 
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
+
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
       p->state = UNUSED;
-      p->kstack = KSTACK((int) (p - proc));
+      p->kstack = KSTACK((int)(p - proc));
   }
 }
 ```
 
-```
-/// Initializes the process table.
-///
-/// # Safety
-/// Must be called only once during kernel initialization.
+octoposでは、
+
+```rust
 pub unsafe fn init() {
     for proc in PROC_TABLE.iter() {
-        // # Safety: we are during initialization, so we are the only ones with access to the proc
         unsafe { proc.data_mut() }.kstack = VA::from(kstack(proc.id));
     }
 
     println!("proc init");
+}
 ```
 
-- メソッド自体にも参照だけか可変参照が必要かで分けられている
-  - これらはコンパイル時に検知されるので、不必要な可変参照の取得を検知して実行前に確認することができる
+のようにprocess tableをiteratorで走査し、`data_mut()`を通して`ProcData`への可変参照を取得する。
 
-```
-    /// Returns a reference to the trapframe.
-    pub fn trapframe(&self) -> &TrapFrame {
-        self.trapframe.as_ref().unwrap()
-    }
+`init()`はkernel initialization中に一度だけ呼ばれることを前提としている。
 
-    /// Returns a mutable reference to the trapframe.
-    pub fn trapframe_mut(&mut self) -> &mut TrapFrame {
-        self.trapframe.as_mut().unwrap()
-    }
+この時点では他の実行主体から`PROC_TABLE`へアクセスされないため、
 
-    /// Returns a reference to the user page table.
-    pub fn pagetable(&self) -> &Uvm {
-        self.pagetable.as_ref().unwrap()
-    }
-
-    /// Returns a mutable reference to the user page table.
-    pub fn pagetable_mut(&mut self) -> &mut Uvm {
-        self.pagetable.as_mut().unwrap()
-    }
+```text
+kernel initialization中
+        ↓
+他のCPU/processからアクセスされない
+        ↓
+exclusive accessが成立
+        ↓
+data_mut()を利用できる
 ```
 
-- dataの参照だけなら`unsafe`ブロックでの呼び出しは必要ないが、可変参照なら`unsafe`ブロック内で呼び出す必要がある
+という条件をkernel側が保証する。
 
-```
-    pub fn data(&self) -> &ProcData {
-        unsafe { &*self.data.get() }
-    }
+### 4.3 共有参照と可変参照
 
-    /// Returns a mutable reference to the process's data.
-    ///
-    /// # Safety
-    /// The caller must ensure they have exclusive access to the `Proc`. This is true if either
-    ///     1. it's the current proc (most cases) or
-    ///     2. the proc's state hasn't been set to Runnable/Sleeping yet (fork, allocproc).
-    #[allow(clippy::mut_from_ref)]
-    pub unsafe fn data_mut(&self) -> &mut ProcData {
-        unsafe { &mut *self.data.get() }
-    }
+octoposでは参照だけを返すメソッドと、可変参照を返すメソッドを分けている。
+
+```rust
+pub fn trapframe(&self) -> &TrapFrame
+pub fn trapframe_mut(&mut self) -> &mut TrapFrame
+
+pub fn pagetable(&self) -> &Uvm
+pub fn pagetable_mut(&mut self) -> &mut Uvm
 ```
 
-- Cell
-  - Cell<T>の更新はTを取り出してTを置き換える
-  - 可変参照は必要ない
-- RefCell
-  - RefCell<T>では可変参照を取得しないでも更新ができる
-  - 複数からの可変参照はruntimeで検知する
-  - `borrow_mut`メソッド経由での中身を更新する
+Rustのborrow checkerは、複数の可変参照の同時存在や、可変参照と共有参照の競合などをコンパイル時に検査できる。
+
+xv6ではpointerを通してfieldを直接操作できるため、アクセス可能な条件については開発者側の規約への依存が大きい。
+
+### 4.4 `UnsafeCell`による`ProcData`へのアクセス
+
+octoposでは`ProcData`の内部可変性を実現するために`UnsafeCell`を利用している。
+
+```rust
+pub fn data(&self) -> &ProcData {
+    unsafe { &*self.data.get() }
+}
+
+pub unsafe fn data_mut(&self) -> &mut ProcData {
+    unsafe { &mut *self.data.get() }
+}
+```
+
+`UnsafeCell::get()`が返すのは`&mut T`ではなく`*mut T`というraw pointerである。
+
+`data_mut()`ではこのraw pointerから`&mut ProcData`を作るため、その時点でexclusive accessが成立していることを呼び出し側が保証する必要がある。
+
+このように、xv6ではコメントや実装規約として存在する一部のアクセス条件を、octoposではsafe APIと`unsafe` APIの境界として表現している。
+
+---
+
+## 5. Syscallの比較
+
+Stride Schedulerそのものの実装箇所ではないが、process状態やuser/kernel境界の扱い方を比較するため、syscall経路も確認した。
+
+### 5.1 syscall入口
+
+xv6では`usys.S`で`a7`レジスタにシステムコール番号を設定し、`ecall`を実行する。
+
+octoposでは`inline asm`を利用してRISC-V命令を記述し、引数を`a0`以降のregisterへ、システムコール番号を`a7`へ設定した上で`ecall`を実行する。
+
+user modeで`ecall`が発生するとtrapし、trampolineを経由してkernel側のtrap handlerへ移行し、trapframeに保存されたregister値を利用してsyscall処理へ進む。
+
+### 5.2 syscall番号とdispatch
+
+xv6ではtrapframeの`a7`からシステムコール番号を取得し、その値をindexとして対応する関数を呼び出す。
+
+octoposでは`a7`の値を`Syscall`型へ変換し、`match`によって対応するsyscallへdispatchする。
+
+また、octoposではsyscall引数を`Args`としてまとめ、各syscallへ参照として渡す設計になっている。
+
+このため、xv6が整数値を中心にdispatchするのに対して、octoposではsyscall番号自体を型として表現できる。
+
+### 5.3 引数取得
+
+xv6では`argint`、`argaddr`など、取得する引数に応じた関数を利用する。
+
+octoposでは`Args`のメソッドとして引数取得処理を実装し、仮想アドレスには単なる整数ではなく`VA`型を利用する。
+
+そのため、
+
+```text
+xv6     : uint64などの整数値
+octopos : VA
+```
+
+のように、仮想アドレスであることを型として区別できる。
+
+### 5.4 user memoryアクセス
+
+xv6とoctoposの両方で、user virtual addressを扱う場合にはpage tableを利用してuser memoryへアクセスする。
+
+xv6では`pagetable`を`copyin`や`copyout`などの関数へ渡す設計が中心である。
+
+octoposではpage tableを表す型のメソッドとしてuser memory操作を実装している箇所があり、失敗は`Result`として表現される。
+
+ただし、userから渡されたvirtual addressが本当に有効な領域を指しているかどうかをRustの型だけで保証することはできない。
+
+そのためkernel側でpage tableやaddress rangeを確認し、不正な場合にはerrorとして処理する必要がある。
+
+### 5.5 戻り値とerror処理
+
+xv6ではsyscall失敗時に`-1`を返す設計が多い。
+
+一方、octoposでは`Result`と`SysError`を利用する。
+
+```rust
+pub enum SysError {
+    NotPermitted,
+    NoEntry,
+    NoProcess,
+    Interrupted,
+    IoError,
+    /* … */
+}
+```
+
+このため、
+
+```text
+成功
+失敗
+失敗した理由
+```
+
+を型として分離して扱える。
+
+### 5.6 `unsafe`の境界
+
+octoposのsyscall本体の多くはsafe Rustとして記述できるが、Rustの型システムだけでは安全性を証明できない操作では`unsafe`が必要になる。
+
+例として、
+
+- raw pointerのdereference
+- user virtual addressからsliceを生成する処理
+- `UnsafeCell`を通した可変アクセス
+- inline assembly
+- exclusive accessをOS側の状態によって保証する処理
+
+などがある。
+
+重要なのは、userから不正なaddressが渡された場合でも、それを安全に検証・拒否する責任はkernel側にあることである。
+
+### 5.7 `read` / `write`
+
+xv6とoctoposの`read` / `write`は、処理の大枠は共通している。
+
+```text
+file descriptor
+    ↓
+Fileを取得
+    ↓
+inode / pipe / deviceなどへ処理を委譲
+    ↓
+user memoryとのデータ転送
+```
+
+一方、表現方法には違いがある。
+
+| 項目 | xv6 | octopos |
+|---|---|---|
+| user address | `uint64`など | `VA` |
+| file | `struct file *` | `File`構造体 |
+| read/write | `fileread()` / `filewrite()` | `File`のメソッド |
+| error | 主に`-1` | `Result` / `SysError` |
+| lock管理 | 明示的なlock操作 | `SpinLockGuard`など |
+| user memory | 整数addressを検査してcopy | 型を利用しつつ、必要な境界は`unsafe` |
+
+ただし、octoposでもuser addressの妥当性や、inode・pipeなど複数resource間のlock orderingまで型だけで保証できるわけではない。
+
+---
+
+## 6. Stride Scheduler実装を通して見えたxv6とoctoposの違い
+
+今回の比較で最も重要だったのは、Stride Schedulingアルゴリズムそのものはxv6でもoctoposでも大きく変わらない一方、そのアルゴリズムをkernel内部で安全に実装・管理する方法が異なるという点である。
+
+### Rustによって型やRAIIに移せる部分
+
+```text
+xv6                           octopos
+
+Proc * / NULL                 Option<&Proc>
+整数としてのaddress           VA
+-1によるerror                 Result / SysError
+acquire()/release()           SpinLockGuard + Drop
+共有・可変accessの規約         &T / &mut T
+危険な操作がコード全体に存在   unsafe境界を明示
+戻らないことは実装上の性質     never型 !
+```
+
+octoposでは、xv6でpointer、整数値、NULL、手動lock管理、コメント上の規約として表現されている一部の条件をRustの型システムやRAIIへ移すことができる。
+
+このため、以下のような問題は防止・発見しやすくなる。
+
+- nullable pointerの扱い
+- 通常のcontrol flowにおけるlock解放忘れ
+- 共有参照と可変参照の競合
+- addressやerrorの種類の取り違え
+- unsafeな操作が存在する場所の把握
+
+### Rustだけでは保証できない部分
+
+一方、以下のようなOS固有の論理的安全性はRustだけでは保証できない。
+
+- `cpu.proc`に論理的に正しいprocessが設定されているか
+- process stateの遷移が正しいか
+- `min_pass()`で得たselection結果が再lock時にも有効か
+- schedulerのfairness
+- pass値のoverflowやnormalizationの設計
+- SMP環境でのatomicity
+- lock ordering
+- deadlock
+- context switchをまたぐlock handoff protocol
+- `swtch()`が要求するregister、context、stackのinvariant
+- kernel stack overflow
+- user pointerが意味的に正しい領域を指しているか
+- Stride Schedulingアルゴリズムそのものが正しく実装されているか
+
+つまりRustはOSの論理を自動的に正しくするものではない。
+
+---
+
+## 7. 全体レビュー
+
+Stride Schedulerをxv6とoctoposの両方に実装した結果、schedulerアルゴリズムの中心部分はほぼ同じ考え方で実装できた。
+
+どちらも、
+
+```text
+Runnableなprocessを探索
+        ↓
+passが最小のprocessを選択
+        ↓
+Runningへ変更
+        ↓
+context switch
+        ↓
+passを更新
+```
+
+という基本構造を持つ。
+
+一方で、実装を支えるkernel内部の表現には大きな違いがあった。
+
+xv6ではpointer、NULL、整数値、明示的な`acquire()` / `release()`、コメントによるlock規約などを利用し、開発者が多くの条件を手動で管理する。
+
+octoposでは、`Option`、`Result`、`VA`、`SpinLockGuard`、`&T` / `&mut T`、`UnsafeCell`、`unsafe`などを利用し、xv6では暗黙的な規約だった条件の一部を型やAPIとして明示している。
+
+特にStride Schedulerの実装では、processを選択する際のlock、current processの表現、`Proc`内部へのaccess、context switchなどを通して、この違いを確認できた。
+
+ただし、Rustを利用しても、
+
+```text
+schedulerのselection race
+process stateの論理的な正しさ
+SMP上の競合
+deadlock
+lock ordering
+context switch protocol
+kernel stack overflow
+```
+
+などのOS固有の問題が自動的に解決されるわけではない。
+
+したがって今回の実装を通して、
+
+> **RustはStride Schedulerそのものを自動的に安全にするのではなく、schedulerを構成するpointer、lock、参照、error、resource lifetimeなどの一部を型システムやRAIIによって安全に管理しやすくする。一方、schedulerやkernel固有の並行処理・状態遷移・context switchのinvariantについては、依然としてOS開発者が設計・検証する必要がある。**
+
+という違いがxv6とoctoposの間で確認できた。
