@@ -258,7 +258,9 @@ pub fn sys_open(args: &SyscallArgs) -> Result<usize, SysError> {
         }
     };
 
-    let mut file_inner = FILE_TABLE.inner[file.id].lock();
+    let file_inner_ref = FILE_TABLE.get_inner(file.id);
+    let mut file_inner = file_inner_ref.lock();
+
     if inode_inner.r#type == InodeType::Device {
         file_inner.r#type = FileType::Device {
             inode: inode.clone(),

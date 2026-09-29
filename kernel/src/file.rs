@@ -44,27 +44,32 @@ pub static FILE_TABLE: FileTable = FileTable::new();
 pub struct FileTable {
     /// Protects allocation and reference counts
     pub meta: SpinLock<[FileMeta; NFILE]>,
-    /// Per-file locks for concurrent access to different files
-    pub inner: [SleepLock<FileInner>; NFILE],
+    /// Protects references to heap-allocated per-file states.
+    pub inner: SpinLock<[Option<Arc<SleepLock<FileInner>>>; NFILE]>,
 }
 
 impl FileTable {
     const fn new() -> Self {
         let meta = SpinLock::new([const { FileMeta { ref_count: 0 } }; NFILE], "filetable");
-
-        let inner = [const {
-            SleepLock::new(
-                FileInner {
-                    readable: false,
-                    writeable: false,
-                    r#type: FileType::None,
-                    offset: 0,
-                },
-                "file",
-            )
-        }; NFILE];
+        let inner = SpinLock::new([const { None }; NFILE], "file-inner-table");
 
         Self { meta, inner }
+    }
+
+    pub fn get_inner(&self, id: usize) -> Arc<SleepLock<FileInner>> {
+        let inner_table = self.inner.lock();
+
+        Arc::clone(
+            inner_table[id]
+                .as_ref()
+                .expect("FileInner is not allocated"),
+        )
+    }
+
+    pub fn take_inner(&self, id: usize) -> Arc<SleepLock<FileInner>> {
+        let mut inner_table = self.inner.lock();
+
+        inner_table[id].take().expect("FileInner is not allocated")
     }
 }
 
@@ -81,6 +86,21 @@ impl File {
 
         for (i, meta) in meta.iter_mut().enumerate() {
             if meta.ref_count == 0 {
+                let new_inner = Arc::new(SleepLock::new(
+                    FileInner {
+                        readable: false,
+                        writeable: false,
+                        r#type: FileType::None,
+                        offset: 0,
+                    },
+                    "file",
+                ));
+
+                {
+                    let mut inner_table = FILE_TABLE.inner.lock();
+                    inner_table[i] = Some(new_inner);
+                };
+
                 meta.ref_count = 1;
 
                 return Ok(Self { id: i });
@@ -114,7 +134,8 @@ impl File {
         }
 
         let inner_copy = {
-            let mut inner = FILE_TABLE.inner[self.id].lock();
+            let file_inner_ref = FILE_TABLE.take_inner(self.id);
+            let mut inner = file_inner_ref.lock();
             // copy inner before resetting fields
             let copy = inner.clone();
 
@@ -139,7 +160,8 @@ impl File {
 
     /// Gets metadata about file.
     pub fn stat(&self, addr: VA) -> Result<(), SysError> {
-        let file_inner = FILE_TABLE.inner[self.id].lock();
+        let file_inner_ref = FILE_TABLE.get_inner(self.id);
+        let file_inner = file_inner_ref.lock();
 
         match &file_inner.r#type {
             FileType::Inode { inode } | FileType::Device { inode, .. } => {
@@ -162,7 +184,8 @@ impl File {
 
     /// Reads from file.
     pub fn read(&self, addr: VA, n: usize) -> Result<usize, SysError> {
-        let mut file_inner = FILE_TABLE.inner[self.id].lock();
+        let file_inner_ref = FILE_TABLE.get_inner(self.id);
+        let mut file_inner = file_inner_ref.lock();
 
         if !file_inner.readable {
             err!(SysError::BadDescriptor);
@@ -202,7 +225,8 @@ impl File {
 
     /// Writes to a file.
     pub fn write(&mut self, addr: VA, n: usize) -> Result<usize, SysError> {
-        let mut file_inner = FILE_TABLE.inner[self.id].lock();
+        let file_inner_ref = FILE_TABLE.get_inner(self.id);
+        let mut file_inner = file_inner_ref.lock();
 
         if !file_inner.writeable {
             err!(SysError::BadDescriptor);
@@ -261,7 +285,8 @@ impl File {
     }
 
     pub fn ioctl(&self, cmd: usize, arg: usize) -> Result<usize, SysError> {
-        let file_inner = FILE_TABLE.inner[self.id].lock();
+        let file_inner_ref = FILE_TABLE.get_inner(self.id);
+        let file_inner = file_inner_ref.lock();
 
         match &file_inner.r#type {
             FileType::Device { major, .. } if *major as usize == CONSOLE => {

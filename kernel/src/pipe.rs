@@ -63,7 +63,8 @@ impl Pipe {
 
         // f0 = read end
         {
-            let mut f0_inner = FILE_TABLE.inner[f0.id].lock();
+            let f0_inner_ref = FILE_TABLE.get_inner(f0.id);
+            let mut f0_inner = f0_inner_ref.lock();
             f0_inner.r#type = FileType::Pipe {
                 pipe: Arc::clone(&pipe),
             };
@@ -73,7 +74,8 @@ impl Pipe {
 
         // f1 = write end
         {
-            let mut f1_inner = FILE_TABLE.inner[f1.id].lock();
+            let f1_inner_ref = FILE_TABLE.get_inner(f1.id);
+            let mut f1_inner = f1_inner_ref.lock();
             f1_inner.r#type = FileType::Pipe { pipe };
             f1_inner.readable = false;
             f1_inner.writeable = true;
