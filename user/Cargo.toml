@@ -184,6 +184,13 @@ doctest = false
 bench = false
 
 [[bin]]
+name = "read-test"
+path = "bin/read-test.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
 name = "testrunner"
 path = "testbin/testrunner.rs"
 test = false
