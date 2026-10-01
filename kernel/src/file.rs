@@ -37,6 +37,17 @@ pub struct FileInner {
     pub offset: u32,
 }
 
+impl Default for FileInner {
+    fn default() -> Self {
+        Self {
+            readable: false,
+            writeable: false,
+            r#type: FileType::None,
+            offset: 0,
+        }
+    }
+}
+
 pub static FILE_TABLE: FileTable = FileTable::new();
 
 /// Global file table
@@ -71,6 +82,18 @@ impl FileTable {
 
         inner_table[id].take().expect("FileInner is not allocated")
     }
+
+    pub fn replace_file_inner(
+        &self,
+        id: usize,
+        new_inner: Arc<SleepLock<FileInner>>,
+    ) -> Arc<SleepLock<FileInner>> {
+        let mut inner_table = self.inner.lock();
+
+        inner_table[id]
+            .replace(new_inner)
+            .expect("FileInner is not allocated")
+    }
 }
 
 /// File handle, just an index into the `FileTable`
@@ -86,15 +109,7 @@ impl File {
 
         for (i, meta) in meta.iter_mut().enumerate() {
             if meta.ref_count == 0 {
-                let new_inner = Arc::new(SleepLock::new(
-                    FileInner {
-                        readable: false,
-                        writeable: false,
-                        r#type: FileType::None,
-                        offset: 0,
-                    },
-                    "file",
-                ));
+                let new_inner = Arc::new(SleepLock::new(FileInner::default(), "file"));
 
                 {
                     let mut inner_table = FILE_TABLE.inner.lock();
