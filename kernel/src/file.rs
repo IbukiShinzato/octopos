@@ -1,4 +1,5 @@
 use core::slice;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use alloc::sync::Arc;
 
@@ -49,6 +50,9 @@ impl Default for FileInner {
 }
 
 pub static FILE_TABLE: FileTable = FileTable::new();
+
+static READ_UE_INJECTED: AtomicBool = AtomicBool::new(false);
+const READ_UE_TARGET_ID: usize = 1;
 
 /// Global file table
 #[derive(Debug)]
@@ -202,6 +206,16 @@ impl File {
         let file_inner_ref = FILE_TABLE.get_inner(self.id);
         let mut file_inner = file_inner_ref.lock();
 
+        // prototype: emulate UE detection immediately before readable access
+        if should_inject_file_inner_ue(self.id) {
+            let new_inner = Arc::new(SleepLock::new(FileInner::default(), "file"));
+            let _old_inner = FILE_TABLE.replace_file_inner(self.id, new_inner);
+
+            drop(file_inner);
+
+            err!(SysError::IoError);
+        }
+
         if !file_inner.readable {
             err!(SysError::BadDescriptor);
         }
@@ -312,6 +326,10 @@ impl File {
             _ => err!(SysError::BadDescriptor),
         }
     }
+}
+
+fn should_inject_file_inner_ue(id: usize) -> bool {
+    id == READ_UE_TARGET_ID && !READ_UE_INJECTED.swap(true, Ordering::Relaxed)
 }
 
 /// File open flags
