@@ -4,7 +4,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use alloc::sync::Arc;
 
 use crate::console::Console;
-use crate::fs::{BSIZE, FsError, Inode, Stat};
+use crate::fs::{BSIZE, FsError, INODE_TABLE, Inode, Stat};
 use crate::log::Operation;
 use crate::param::{MAXOPBLOCKS, NDEV, NFILE};
 use crate::pipe::Pipe;
@@ -49,7 +49,33 @@ impl Default for FileInner {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum RecoveryType {
+    None,
+    Inode { dev: u32, inum: u32 },
+    Device { dev: u32, inum: u32, major: u16 },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct RLog {
+    pub readable: bool,
+    pub writeable: bool,
+    pub r#type: RecoveryType,
+    pub offset: u32,
+}
+
+impl RLog {
+    pub const fn new() -> Self {
+        Self {
+            readable: false,
+            writeable: false,
+            r#type: RecoveryType::None,
+            offset: 0,
+        }
+    }
+}
 pub static FILE_TABLE: FileTable = FileTable::new();
+pub static R_LOG: SpinLock<RLog> = SpinLock::new(RLog::new(), "R-Log");
 
 static READ_UE_INJECTED: AtomicBool = AtomicBool::new(false);
 const READ_UE_TARGET_ID: usize = 1;
@@ -87,11 +113,33 @@ impl FileTable {
         inner_table[id].take().expect("FileInner is not allocated")
     }
 
-    pub fn replace_file_inner(
-        &self,
-        id: usize,
-        new_inner: Arc<SleepLock<FileInner>>,
-    ) -> Arc<SleepLock<FileInner>> {
+    pub fn replace_file_inner(&self, id: usize) -> Arc<SleepLock<FileInner>> {
+        let r_log = R_LOG.lock();
+        let (readable, writeable, r#type, offset) =
+            (r_log.readable, r_log.writeable, r_log.r#type, r_log.offset);
+        drop(r_log);
+
+        let mut new_inner = FileInner {
+            readable,
+            writeable,
+            r#type: FileType::None,
+            offset,
+        };
+        match r#type {
+            RecoveryType::None => {}
+            RecoveryType::Inode { dev, inum } => {
+                if let Ok(inode) = Inode::get(dev, inum) {
+                    new_inner.r#type = FileType::Inode { inode };
+                };
+            }
+            RecoveryType::Device { dev, inum, major } => {
+                if let Ok(inode) = Inode::get(dev, inum) {
+                    new_inner.r#type = FileType::Device { inode, major };
+                };
+            }
+        };
+        let new_inner = Arc::new(SleepLock::new(new_inner, "file"));
+
         let mut inner_table = self.inner.lock();
 
         inner_table[id]
@@ -171,8 +219,32 @@ impl File {
                 pipe.close(inner_copy.writeable);
             }
             FileType::Inode { inode } | FileType::Device { inode, .. } => {
+                let inode_id = inode.id;
+                let inode_dev = inode.dev;
+                let inode_inum = inode.inum;
+
+                let mut ref_count = {
+                    let meta = INODE_TABLE.meta.lock();
+                    meta[inode_id].r#ref
+                };
+
+                println!(
+                    "DEBUG: File.id={}, Inode.id={}, dev={}, inum={}, ref={}",
+                    self.id, inode_id, inode_dev, inode_inum, ref_count
+                );
+
                 let _op = Operation::begin();
                 inode.put();
+
+                ref_count = {
+                    let meta = INODE_TABLE.meta.lock();
+                    meta[inode_id].r#ref
+                };
+
+                println!(
+                    "DEBUG: File.id={}, Inode.id={}, dev={}, inum={}, ref={}",
+                    self.id, inode_id, inode_dev, inode_inum, ref_count
+                );
             }
         }
     }
@@ -208,8 +280,25 @@ impl File {
 
         // prototype: emulate UE detection immediately before readable access
         if should_inject_file_inner_ue(self.id) {
-            let new_inner = Arc::new(SleepLock::new(FileInner::default(), "file"));
-            let _old_inner = FILE_TABLE.replace_file_inner(self.id, new_inner);
+            let (dev, inum) = {
+                let r_log = R_LOG.lock();
+
+                match r_log.r#type {
+                    RecoveryType::Inode { dev, inum } => (dev, inum),
+                    _ => panic!("unexpected recovery type"),
+                }
+            };
+
+            let before = debug_inode_ref(dev, inum);
+
+            let _old_inner = FILE_TABLE.replace_file_inner(self.id);
+
+            let after = debug_inode_ref(dev, inum);
+
+            println!("DEBUG: File.id = {}", self.id);
+            println!("DEBUG: Inode dev={}, inum={}", dev, inum);
+            println!("DEBUG: Before recovery: {:?}", before);
+            println!("DEBUG: After recovery: {:?}", after);
 
             drop(file_inner);
 
@@ -232,11 +321,15 @@ impl File {
                 let dst = unsafe { slice::from_raw_parts_mut(addr.as_mut_ptr(), n) };
                 let read = log!(inode.read(&mut inode_inner, file_inner.offset, dst, true));
 
+                inode.unlock(inode_inner);
                 if let Ok(read) = read {
                     file_inner.offset += read;
-                }
 
-                inode.unlock(inode_inner);
+                    {
+                        let mut r_log = R_LOG.lock();
+                        r_log.offset = file_inner.offset;
+                    }
+                }
 
                 if let Ok(read) = read {
                     Ok(read as usize)
@@ -370,3 +463,12 @@ pub static DEVICES: [Option<Device>; NDEV] = {
     });
     devices
 };
+
+fn debug_inode_ref(dev: u32, inum: u32) -> Option<(usize, u32)> {
+    let meta = INODE_TABLE.meta.lock();
+
+    meta.iter()
+        .enumerate()
+        .find(|(_, inode)| inode.r#ref > 0 && inode.dev == dev && inode.inum == inum)
+        .map(|(id, inode)| (id, inode.r#ref))
+}

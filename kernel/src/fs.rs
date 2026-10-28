@@ -304,7 +304,7 @@ impl Inode {
 pub static INODE_TABLE: InodeTable = InodeTable::new();
 
 pub struct InodeTable {
-    meta: SpinLock<[InodeMeta; NINODE]>,
+    pub meta: SpinLock<[InodeMeta; NINODE]>,
     inner: [SleepLock<InodeInner>; NINODE],
 }
 
