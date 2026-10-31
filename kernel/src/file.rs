@@ -113,38 +113,44 @@ impl FileTable {
         inner_table[id].take().expect("FileInner is not allocated")
     }
 
-    pub fn replace_file_inner(&self, id: usize) -> Arc<SleepLock<FileInner>> {
+    pub fn replace_file_inner(&self, id: usize) -> Result<Arc<SleepLock<FileInner>>, SysError> {
         let r_log = R_LOG.lock();
         let (readable, writeable, r#type, offset) =
             (r_log.readable, r_log.writeable, r_log.r#type, r_log.offset);
         drop(r_log);
 
-        let mut new_inner = FileInner {
-            readable,
-            writeable,
-            r#type: FileType::None,
-            offset,
-        };
-        match r#type {
-            RecoveryType::None => {}
+        let restored_type = match r#type {
+            RecoveryType::None => {
+                return Err(SysError::IoError);
+            }
             RecoveryType::Inode { dev, inum } => {
-                if let Ok(inode) = Inode::get(dev, inum) {
-                    new_inner.r#type = FileType::Inode { inode };
-                };
+                let inode = Inode::recovery_inode_get(dev, inum).ok_or(SysError::IoError)?;
+                FileType::Inode { inode }
             }
             RecoveryType::Device { dev, inum, major } => {
-                if let Ok(inode) = Inode::get(dev, inum) {
-                    new_inner.r#type = FileType::Device { inode, major };
-                };
+                let inode = Inode::recovery_inode_get(dev, inum).ok_or(SysError::IoError)?;
+                FileType::Device { inode, major }
             }
+        };
+
+        let new_inner = FileInner {
+            readable,
+            writeable,
+            r#type: restored_type,
+            offset,
         };
         let new_inner = Arc::new(SleepLock::new(new_inner, "file"));
 
         let mut inner_table = self.inner.lock();
 
-        inner_table[id]
-            .replace(new_inner)
-            .expect("FileInner is not allocated")
+        let slot = inner_table
+            .get_mut(id)
+            .and_then(|entry| entry.as_mut())
+            .ok_or(SysError::IoError)?;
+
+        let old_inner = core::mem::replace(slot, new_inner);
+
+        Ok(old_inner)
     }
 }
 
@@ -291,7 +297,7 @@ impl File {
 
             let before = debug_inode_ref(dev, inum);
 
-            let _old_inner = FILE_TABLE.replace_file_inner(self.id);
+            let _old_inner = FILE_TABLE.replace_file_inner(self.id)?;
 
             let after = debug_inode_ref(dev, inum);
 
