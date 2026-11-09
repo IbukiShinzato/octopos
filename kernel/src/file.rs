@@ -75,10 +75,23 @@ impl RLog {
     }
 }
 pub static FILE_TABLE: FileTable = FileTable::new();
-pub static R_LOG: SpinLock<RLog> = SpinLock::new(RLog::new(), "R-Log");
+pub static R_LOG_TABLE: RLogTable = RLogTable::new();
 
 static READ_UE_INJECTED: AtomicBool = AtomicBool::new(false);
 const READ_UE_TARGET_ID: usize = 1;
+
+#[derive(Debug)]
+pub struct RLogTable {
+    pub entries: SpinLock<[RLog; NFILE]>,
+}
+
+impl RLogTable {
+    const fn new() -> Self {
+        let entries = SpinLock::new([const { RLog::new() }; NFILE], "R-Log-table");
+
+        Self { entries }
+    }
+}
 
 /// Global file table
 #[derive(Debug)]
@@ -114,10 +127,9 @@ impl FileTable {
     }
 
     pub fn replace_file_inner(&self, id: usize) -> Result<Arc<SleepLock<FileInner>>, SysError> {
-        let r_log = R_LOG.lock();
+        let r_log = R_LOG_TABLE.entries.lock()[id];
         let (readable, writeable, r#type, offset) =
             (r_log.readable, r_log.writeable, r_log.r#type, r_log.offset);
-        drop(r_log);
 
         let restored_type = match r#type {
             RecoveryType::None => {
@@ -215,9 +227,16 @@ impl File {
             meta.ref_count = 0;
             inner.r#type = FileType::None;
 
+            drop(inner);
+
+            {
+                let mut r_logs = R_LOG_TABLE.entries.lock();
+                r_logs[self.id] = RLog::new();
+            }
+
             drop(meta_guard);
             copy
-        }; // drop both inner and meta locks
+        }; // Release locks before closing Pipe or putting Inode.
 
         match inner_copy.r#type {
             FileType::None => {}
@@ -332,8 +351,8 @@ impl File {
                     file_inner.offset += read;
 
                     {
-                        let mut r_log = R_LOG.lock();
-                        r_log.offset = file_inner.offset;
+                        let mut r_logs = R_LOG_TABLE.entries.lock();
+                        r_logs[self.id].offset = file_inner.offset;
                     }
                 }
 
