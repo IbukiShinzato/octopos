@@ -1,5 +1,5 @@
 use core::slice;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use alloc::sync::Arc;
 
@@ -77,7 +77,7 @@ impl RLog {
 pub static FILE_TABLE: FileTable = FileTable::new();
 pub static R_LOG_TABLE: RLogTable = RLogTable::new();
 
-static READ_UE_INJECTED: AtomicBool = AtomicBool::new(false);
+static TARGET_READ_COUNT: AtomicUsize = AtomicUsize::new(0);
 const READ_UE_TARGET_ID: usize = 1;
 
 #[derive(Debug)]
@@ -244,32 +244,8 @@ impl File {
                 pipe.close(inner_copy.writeable);
             }
             FileType::Inode { inode } | FileType::Device { inode, .. } => {
-                let inode_id = inode.id;
-                let inode_dev = inode.dev;
-                let inode_inum = inode.inum;
-
-                let mut ref_count = {
-                    let meta = INODE_TABLE.meta.lock();
-                    meta[inode_id].r#ref
-                };
-
-                println!(
-                    "DEBUG: File.id={}, Inode.id={}, dev={}, inum={}, ref={}",
-                    self.id, inode_id, inode_dev, inode_inum, ref_count
-                );
-
                 let _op = Operation::begin();
                 inode.put();
-
-                ref_count = {
-                    let meta = INODE_TABLE.meta.lock();
-                    meta[inode_id].r#ref
-                };
-
-                println!(
-                    "DEBUG: File.id={}, Inode.id={}, dev={}, inum={}, ref={}",
-                    self.id, inode_id, inode_dev, inode_inum, ref_count
-                );
             }
         }
     }
@@ -305,25 +281,7 @@ impl File {
 
         // prototype: emulate UE detection immediately before readable access
         if should_inject_file_inner_ue(self.id) {
-            let (dev, inum) = {
-                let r_log = R_LOG.lock();
-
-                match r_log.r#type {
-                    RecoveryType::Inode { dev, inum } => (dev, inum),
-                    _ => panic!("unexpected recovery type"),
-                }
-            };
-
-            let before = debug_inode_ref(dev, inum);
-
             let _old_inner = FILE_TABLE.replace_file_inner(self.id)?;
-
-            let after = debug_inode_ref(dev, inum);
-
-            println!("DEBUG: File.id = {}", self.id);
-            println!("DEBUG: Inode dev={}, inum={}", dev, inum);
-            println!("DEBUG: Before recovery: {:?}", before);
-            println!("DEBUG: After recovery: {:?}", after);
 
             drop(file_inner);
 
@@ -447,7 +405,11 @@ impl File {
 }
 
 fn should_inject_file_inner_ue(id: usize) -> bool {
-    id == READ_UE_TARGET_ID && !READ_UE_INJECTED.swap(true, Ordering::Relaxed)
+    if id != READ_UE_TARGET_ID {
+        return false;
+    }
+
+    TARGET_READ_COUNT.fetch_add(1, Ordering::Relaxed) == 1
 }
 
 /// File open flags

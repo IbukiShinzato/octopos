@@ -191,6 +191,27 @@ doctest = false
 bench = false
 
 [[bin]]
+name = "rlog-test"
+path = "bin/rlog-test.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
+name = "rlog-test-mul"
+path = "bin/rlog-test-mul.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
+name = "offset-test"
+path = "bin/offset-test.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
 name = "testrunner"
 path = "testbin/testrunner.rs"
 test = false
