@@ -4,7 +4,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use alloc::sync::Arc;
 
 use crate::console::Console;
-use crate::fs::{BSIZE, FsError, INODE_TABLE, Inode, Stat};
+use crate::fs::{BSIZE, FsError, Inode, Stat};
 use crate::log::Operation;
 use crate::param::{MAXOPBLOCKS, NDEV, NFILE};
 use crate::pipe::Pipe;
@@ -450,12 +450,3 @@ pub static DEVICES: [Option<Device>; NDEV] = {
     });
     devices
 };
-
-fn debug_inode_ref(dev: u32, inum: u32) -> Option<(usize, u32)> {
-    let meta = INODE_TABLE.meta.lock();
-
-    meta.iter()
-        .enumerate()
-        .find(|(_, inode)| inode.r#ref > 0 && inode.dev == dev && inode.inum == inum)
-        .map(|(id, inode)| (id, inode.r#ref))
-}
