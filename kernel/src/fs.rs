@@ -304,7 +304,7 @@ impl Inode {
 pub static INODE_TABLE: InodeTable = InodeTable::new();
 
 pub struct InodeTable {
-    meta: SpinLock<[InodeMeta; NINODE]>,
+    pub meta: SpinLock<[InodeMeta; NINODE]>,
     inner: [SleepLock<InodeInner>; NINODE],
 }
 
@@ -807,6 +807,27 @@ impl Inode {
         parent.unlock_put(parent_inner);
 
         Ok((inode, inode_inner))
+    }
+
+    /// Restoring用に既存のInodeハンドルを再構築する。
+    ///
+    /// Inodeの参照カウントは変更しない。
+    ///
+    /// 前提:
+    /// - 旧FileInnerが持つInode参照が残存している
+    /// - 旧参照の解放責任を新FileInnerへ一度だけ移管する
+    /// - 旧側から同じ参照に対してput()が呼ばれない
+    pub(crate) fn recovery_inode_get(dev: u32, inum: u32) -> Option<Inode> {
+        let meta = INODE_TABLE.meta.lock();
+
+        meta.iter()
+            .enumerate()
+            .find(|(_, inode)| inode.r#ref > 0 && dev == inode.dev && inum == inode.inum)
+            .map(|(id, inode)| Inode {
+                id,
+                dev: inode.dev,
+                inum: inode.inum,
+            })
     }
 }
 

@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 
 use crate::abi::OpenFlag;
 use crate::exec::exec;
-use crate::file::{FILE_TABLE, File, FileType};
+use crate::file::{FILE_TABLE, File, FileType, R_LOG_TABLE, RecoveryType};
 use crate::fs::{Directory, Inode, InodeType, Path, make_path};
 use crate::log::Operation;
 use crate::param::{MAXARG, MAXPATH, NDEV};
@@ -258,10 +258,19 @@ pub fn sys_open(args: &SyscallArgs) -> Result<usize, SysError> {
         }
     };
 
-    let mut file_inner = FILE_TABLE.inner[file.id].lock();
+    let file_inner_ref = FILE_TABLE.get_inner(file.id);
+    let mut file_inner = file_inner_ref.lock();
+    let mut r_logs = R_LOG_TABLE.entries.lock();
+    let r_log = &mut r_logs[file.id];
+
     if inode_inner.r#type == InodeType::Device {
         file_inner.r#type = FileType::Device {
             inode: inode.clone(),
+            major: inode_inner.major,
+        };
+        r_log.r#type = RecoveryType::Device {
+            dev: inode.dev,
+            inum: inode.inum,
             major: inode_inner.major,
         };
     } else {
@@ -269,10 +278,20 @@ pub fn sys_open(args: &SyscallArgs) -> Result<usize, SysError> {
             inode: inode.clone(),
         };
         file_inner.offset = 0;
+        r_log.r#type = RecoveryType::Inode {
+            dev: inode.dev,
+            inum: inode.inum,
+        };
+        r_log.offset = 0;
     }
     file_inner.readable = (o_mode & OpenFlag::WRITE_ONLY) == 0;
     file_inner.writeable =
         (o_mode & OpenFlag::WRITE_ONLY) != 0 || (o_mode & OpenFlag::READ_WRITE != 0);
+
+    r_log.readable = file_inner.readable;
+    r_log.writeable = file_inner.writeable;
+
+    drop(r_logs);
 
     if (o_mode & OpenFlag::TRUNCATE) != 0 && inode_inner.r#type == InodeType::File {
         inode.trunc(&mut inode_inner);
