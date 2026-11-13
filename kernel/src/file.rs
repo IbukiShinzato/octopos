@@ -354,6 +354,7 @@ impl File {
                 while i < n {
                     let n1 = (n - i).min(max);
 
+                    // start log transaction
                     let _op = Operation::begin();
                     let mut inode_inner = inode.lock();
 
@@ -361,18 +362,30 @@ impl File {
                         unsafe { slice::from_raw_parts((addr.as_usize() + i) as *const u8, n1) };
                     let write = log!(inode.write(&mut inode_inner, file_inner.offset, src, true));
 
-                    if let Ok(w) = write {
-                        file_inner.offset += w;
-                    }
-
                     inode.unlock(inode_inner);
+
+                    // end log transaction
                     drop(_op);
 
-                    if write.is_err() {
-                        break;
-                    }
+                    match write {
+                        Ok(w) if w > 0 => {
+                            file_inner.offset += w;
 
-                    i += write.unwrap() as usize;
+                            let offset = {
+                                let mut r_logs = R_LOG_TABLE.entries.lock();
+                                r_logs[self.id].offset = file_inner.offset;
+                                r_logs[self.id].offset
+                            };
+
+                            println!(
+                                "DEBUG: File.id={}, FileInner.offset={}, RLog.offset={}",
+                                self.id, file_inner.offset, offset
+                            );
+
+                            i += w as usize;
+                        }
+                        _ => break,
+                    };
                 }
 
                 if i == n {
