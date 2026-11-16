@@ -212,6 +212,27 @@ doctest = false
 bench = false
 
 [[bin]]
+name = "write"
+path = "bin/write.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
+name = "write-test"
+path = "bin/write-test.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
+name = "write-4kib"
+path = "bin/write-4kib.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
 name = "testrunner"
 path = "testbin/testrunner.rs"
 test = false
