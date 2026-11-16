@@ -9,31 +9,38 @@ fn main(_args: Args) {
         exit_with_msg("read_test: cannot open target.txt");
     };
 
-    let mut buf = [0u8; 4096];
-    // 1回目；擬似UEによってIoError想定
-    match fd1.read(&mut buf) {
-        Err(SysError::IoError) => {
-            println!("Success: first read failed with IoError");
+    // １回目：通常動作
+    let mut buf = [0u8; 512];
+    match fd1.read(&mut buf[..8]) {
+        Ok(n) => {
+            assert_eq!(n, 8);
+            assert_eq!(&buf[..n], b"recovery", "read-test: content mismatch");
         }
         Err(_) => {
             exit_with_msg("read_test: unexpected first read error");
         }
-        Ok(_) => {
-            exit_with_msg("read_test: first read unexpectedly succeeded");
-        }
     }
 
-    // 2回目：リカバリによってOk(n)想定
+    // ２回目：故障注入が有効なら透過的Restoringを検証
+    buf = [0u8; 512];
     match fd1.read(&mut buf) {
         Ok(n) => {
-            if &buf[..n] != b"recovery test\n" {
-                exit_with_msg("read_test: recovered content mismatch");
-            }
-
-            println!("Success: second read succeeded");
+            assert_eq!(n, 6);
+            assert_eq!(&buf[..n], b" test\n", "read-test: content mismatch");
         }
         Err(_) => {
             exit_with_msg("read_test: second read failed");
+        }
+    }
+
+    // ３回目：EOFを確認
+    let mut buf = [0u8; 512];
+    match fd1.read(&mut buf) {
+        Ok(n) => {
+            assert_eq!(n, 0, "read-test: unexpected data after recovery");
+        }
+        Err(e) => {
+            panic!("read-test: third read failed: {:?}", e);
         }
     }
 
