@@ -278,17 +278,13 @@ impl File {
 
     /// Reads from file.
     pub fn read(&self, addr: VA, n: usize) -> Result<usize, SysError> {
-        let file_inner_ref = FILE_TABLE.get_inner(self.id);
-        let mut file_inner = file_inner_ref.lock();
-
         // prototype: emulate UE detection immediately before readable access
         if ENABLE_READ_UE && should_inject_file_inner_ue(self.id) {
             let _old_inner = FILE_TABLE.replace_file_inner(self.id)?;
-
-            drop(file_inner);
-
-            err!(SysError::IoError);
         }
+
+        let file_inner_ref = FILE_TABLE.get_inner(self.id);
+        let mut file_inner = file_inner_ref.lock();
 
         if !file_inner.readable {
             err!(SysError::BadDescriptor);
