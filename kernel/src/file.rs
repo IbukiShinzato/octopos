@@ -77,8 +77,10 @@ impl RLog {
 pub static FILE_TABLE: FileTable = FileTable::new();
 pub static R_LOG_TABLE: RLogTable = RLogTable::new();
 
-static TARGET_READ_COUNT: AtomicUsize = AtomicUsize::new(0);
-const READ_UE_TARGET_ID: usize = 1;
+static TARGET_COUNT: AtomicUsize = AtomicUsize::new(0);
+const UE_TARGET_ID: usize = 1;
+const ENABLE_READ_UE: bool = false;
+const ENABLE_WRITE_UE: bool = false;
 
 #[derive(Debug)]
 pub struct RLogTable {
@@ -280,7 +282,7 @@ impl File {
         let mut file_inner = file_inner_ref.lock();
 
         // prototype: emulate UE detection immediately before readable access
-        if should_inject_file_inner_ue(self.id) {
+        if ENABLE_READ_UE && should_inject_file_inner_ue(self.id) {
             let _old_inner = FILE_TABLE.replace_file_inner(self.id)?;
 
             drop(file_inner);
@@ -330,6 +332,10 @@ impl File {
 
     /// Writes to a file.
     pub fn write(&mut self, addr: VA, n: usize) -> Result<usize, SysError> {
+        if ENABLE_WRITE_UE && should_inject_file_inner_ue(self.id) {
+            let _old_inner = FILE_TABLE.replace_file_inner(self.id)?;
+        }
+
         let file_inner_ref = FILE_TABLE.get_inner(self.id);
         let mut file_inner = file_inner_ref.lock();
 
@@ -371,16 +377,10 @@ impl File {
                         Ok(w) if w > 0 => {
                             file_inner.offset += w;
 
-                            let offset = {
+                            {
                                 let mut r_logs = R_LOG_TABLE.entries.lock();
                                 r_logs[self.id].offset = file_inner.offset;
-                                r_logs[self.id].offset
-                            };
-
-                            println!(
-                                "DEBUG: File.id={}, FileInner.offset={}, RLog.offset={}",
-                                self.id, file_inner.offset, offset
-                            );
+                            }
 
                             i += w as usize;
                         }
@@ -418,11 +418,11 @@ impl File {
 }
 
 fn should_inject_file_inner_ue(id: usize) -> bool {
-    if id != READ_UE_TARGET_ID {
+    if id != UE_TARGET_ID {
         return false;
     }
 
-    TARGET_READ_COUNT.fetch_add(1, Ordering::Relaxed) == 1
+    TARGET_COUNT.fetch_add(1, Ordering::Relaxed) == 1
 }
 
 /// File open flags
